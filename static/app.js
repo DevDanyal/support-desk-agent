@@ -220,6 +220,7 @@ function loadConversation(idx) {
   const conv = state.conversations[idx];
   if (!conv) return;
   newChat(true);
+  $('.welcome')?.remove();
   state.currentConvIdx = idx;
   state.convId = conv.id;
   for (const msg of conv.messages) {
