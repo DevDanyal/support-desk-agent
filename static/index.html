@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SupportDesk AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=6">
+</head>
+<body>
+
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/></svg>
+        </div>
+        <span class="brand-text">SupportDesk</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group">
+        <div class="nav-group-label">Main</div>
+        <button class="nav-item active" data-page="chat" title="AI-powered support chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>AI Chat</span>
+        </button>
+        <button class="nav-item" data-page="dashboard" title="Real-time operations overview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Dashboard</span>
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Management</div>
+        <button class="nav-item" data-page="orders" title="Manage customer orders">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span>Orders</span>
+          <span class="nav-badge" id="ordersBadge">0</span>
+        </button>
+        <button class="nav-item" data-page="tickets" title="Manage support tickets">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>Tickets</span>
+          <span class="nav-badge warning" id="ticketsBadge">0</span>
+        </button>
+        <button class="nav-item" data-page="escalations" title="Issues needing human attention">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Escalations</span>
+          <span class="nav-badge danger" id="escBadge">0</span>
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Resources</div>
+        <button class="nav-item" data-page="customers" title="Customer directory">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Customers</span>
+        </button>
+        <button class="nav-item" data-page="policies" title="Return policy information">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>Policies</span>
+        </button>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="user-avatar">SA</div>
+        <div class="user-info">
+          <div class="user-name">Support Agent</div>
+          <div class="user-status">
+            <span class="status-dot online"></span>
+            Online
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <main class="main" id="mainContent">
+    <!-- ===== CHAT PAGE ===== -->
+    <div class="page active" id="pageChat">
+      <div class="chat-header">
+        <button class="mobile-menu-btn" id="menuBtn" aria-label="Menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="chat-header-left">
+          <button class="new-chat-btn-sm" id="newChatBtnSm" title="New Chat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <div class="chat-header-info">
+            <h2>SupportDesk AI</h2>
+            <span class="ai-status"><span class="status-dot online"></span> AI Assistant</span>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="icon-btn" id="clearChatBtn" title="Clear conversation">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="chat-messages" id="chatMessages">
+        <div class="welcome" id="welcomeScreen">
+          <div class="welcome-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </div>
+          <h1>How can I help you today?</h1>
+          <p>Ask me about orders, support tickets, return policies, or escalate issues to a human agent.</p>
+          <div class="suggestion-chips" id="suggestionChips">
+            <button class="chip" data-msg="What is the status of order ORD-1001?">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+              Track Order
+            </button>
+            <button class="chip" data-msg="What is the return policy for electronics?">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Return Policy
+            </button>
+            <button class="chip" data-msg="Check the status of support ticket TKT-5001">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Check Ticket
+            </button>
+            <button class="chip" data-msg="I need to escalate an issue about a damaged product">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+              Escalate Issue
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <div class="input-container">
+          <textarea id="chatInput" rows="1" placeholder="Ask anything about orders, tickets, policies..." autocomplete="off"></textarea>
+          <div class="input-actions">
+            <button class="input-action-btn" id="micBtn" title="Voice input">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            </button>
+            <button class="send-btn" id="sendBtn" disabled aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="input-footer">AI agent may use tools to look up orders, tickets, policies, and escalate issues.</p>
+      </div>
+    </div>
+
+    <!-- ===== DASHBOARD PAGE ===== -->
+    <div class="page" id="pageDashboard">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-subtitle">Real-time overview of your support operations</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="dashboardSearch" placeholder="Search dashboard..." autocomplete="off">
+          </div>
+          <button class="btn btn-secondary" id="refreshDashboardBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(91,140,255,0.12);color:#5b8cff">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statOrders">—</span>
+              <span class="stat-label">Total Orders</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(255,148,71,0.12);color:#ff9447">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statTickets">—</span>
+              <span class="stat-label">Tickets</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(124,92,255,0.12);color:#7c5cff">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statCustomers">—</span>
+              <span class="stat-label">Customers</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(34,214,139,0.12);color:#22d68b">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statRevenue">—</span>
+              <span class="stat-label">Revenue</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(255,71,96,0.12);color:#ff4760">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statEscalations">—</span>
+              <span class="stat-label">Escalations</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(255,214,71,0.12);color:#ffd647">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="stat-body">
+              <span class="stat-value" id="statPendingOrders">—</span>
+              <span class="stat-label">Pending Orders</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3>Order Status</h3>
+              <span class="card-badge" id="orderBadge">5 orders</span>
+            </div>
+            <div class="card-body">
+              <div class="chart" id="orderChart"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Ticket Status</h3>
+              <span class="card-badge" id="ticketBadge">5 tickets</span>
+            </div>
+            <div class="card-body">
+              <div class="chart" id="ticketChart"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Priority Distribution</h3>
+              <span class="card-badge" id="priorityBadge">0 urgent</span>
+            </div>
+            <div class="card-body">
+              <div id="priorityChart"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Activity Feed</h3>
+              <span class="card-badge green">Live</span>
+            </div>
+            <div class="card-body">
+              <div class="activity-feed" id="activityFeed">
+                <div class="activity-empty">No recent activity</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="loading-overlay" id="dashboardLoading">
+          <div class="spinner"></div>
+          <span>Loading dashboard...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== ORDERS PAGE ===== -->
+    <div class="page" id="pageOrders">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Orders</h1>
+          <p class="page-subtitle">Manage and track customer orders</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="orderSearch" placeholder="Search orders..." autocomplete="off">
+          </div>
+          <select class="filter-select" id="orderFilter">
+            <option value="all">All Status</option>
+            <option value="processing">Processing</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-primary" id="addOrderBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Order
+          </button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Customer</th>
+                <th>Items</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>ETA</th>
+                <th class="th-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+          <div class="loading-overlay" id="ordersLoading">
+            <div class="spinner"></div>
+            <span>Loading orders...</span>
+          </div>
+        </div>
+        <div class="empty-state" id="ordersEmpty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+          <h3>No orders found</h3>
+          <p>Try adjusting your filter or create a new order.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TICKETS PAGE ===== -->
+    <div class="page" id="pageTickets">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Tickets</h1>
+          <p class="page-subtitle">Manage support tickets</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="ticketSearch" placeholder="Search tickets..." autocomplete="off">
+          </div>
+          <select class="filter-select" id="ticketFilter">
+            <option value="all">All Status</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="resolved">Resolved</option>
+          </select>
+          <select class="filter-select" id="priorityFilter">
+            <option value="all">All Priority</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <button class="btn btn-primary" id="addTicketBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Ticket
+          </button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Ticket ID</th>
+                <th>Customer</th>
+                <th>Issue</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Assigned To</th>
+                <th>Date</th>
+                <th class="th-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="ticketsBody"></tbody>
+          </table>
+          <div class="loading-overlay" id="ticketsLoading">
+            <div class="spinner"></div>
+            <span>Loading tickets...</span>
+          </div>
+        </div>
+        <div class="empty-state" id="ticketsEmpty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <h3>No tickets found</h3>
+          <p>Try adjusting your filters or create a new ticket.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== ESCALATIONS PAGE ===== -->
+    <div class="page" id="pageEscalations">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Escalations</h1>
+          <p class="page-subtitle">Issues requiring human agent attention</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="escSearch" placeholder="Search escalations..." autocomplete="off">
+          </div>
+          <button class="btn btn-secondary" id="refreshEscBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Ticket ID</th>
+                <th>Customer</th>
+                <th>Issue</th>
+                <th>Escalated At</th>
+                <th>Status</th>
+                <th class="th-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="escalationsBody"></tbody>
+          </table>
+          <div class="loading-overlay" id="escLoading">
+            <div class="spinner"></div>
+            <span>Loading escalations...</span>
+          </div>
+        </div>
+        <div class="empty-state" id="escEmpty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <h3>All clear</h3>
+          <p>No pending escalations. Great work!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== CUSTOMERS PAGE ===== -->
+    <div class="page" id="pageCustomers">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Customers</h1>
+          <p class="page-subtitle">Customer directory</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="customerSearch" placeholder="Search customers..." autocomplete="off">
+          </div>
+          <button class="btn btn-secondary" id="refreshCustomersBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Email</th>
+                <th>Orders</th>
+                <th>Tickets</th>
+                <th>Member Since</th>
+              </tr>
+            </thead>
+            <tbody id="customersBody"></tbody>
+          </table>
+          <div class="loading-overlay" id="customersLoading">
+            <div class="spinner"></div>
+            <span>Loading customers...</span>
+          </div>
+        </div>
+        <div class="empty-state" id="customersEmpty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          <h3>No customers found</h3>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== POLICIES PAGE ===== -->
+    <div class="page" id="pagePolicies">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title">Return Policies</h1>
+          <p class="page-subtitle">View return policy information by category</p>
+        </div>
+        <div class="page-header-actions">
+          <div class="header-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="policySearch" placeholder="Search policies..." autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="policies-grid" id="policiesGrid"></div>
+        <div class="loading-overlay" id="policiesLoading">
+          <div class="spinner"></div>
+          <span>Loading policies...</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== MODALS ===== -->
+<div class="modal-overlay" id="orderModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Create New Order</h3>
+      <button class="modal-close" data-modal="orderModal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Customer Name</label>
+        <input type="text" id="orderCustomer" placeholder="e.g. John Doe" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Items</label>
+        <input type="text" id="orderItems" placeholder="e.g. Wireless Mouse, Keyboard" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Total ($)</label>
+        <input type="number" id="orderTotal" step="0.01" placeholder="99.99" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal="orderModal">Cancel</button>
+      <button class="btn btn-primary" id="saveOrderBtn">Create Order</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ticketModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Create New Ticket</h3>
+      <button class="modal-close" data-modal="ticketModal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Customer Name</label>
+        <input type="text" id="ticketCustomer" placeholder="e.g. John Doe" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Issue Description</label>
+        <textarea id="ticketIssue" rows="3" placeholder="Describe the issue in detail..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="ticketPriority">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal="ticketModal">Cancel</button>
+      <button class="btn btn-primary" id="saveTicketBtn">Create Ticket</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="resolveModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Resolve Escalation</h3>
+      <button class="modal-close" data-modal="resolveModal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-secondary);text-align:center">Mark this escalation as resolved?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal="resolveModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmResolveBtn">Confirm Resolve</button>
+    </div>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script src="app.js?v=6"></script>
+</body>
+</html>
