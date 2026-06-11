@@ -27,22 +27,6 @@ function animateCount(el, target, duration = 600) {
   requestAnimationFrame(tick);
 }
 
-function staggerAppend(parent, items, createFn, delay = 40) {
-  items.forEach((item, i) => {
-    const el = createFn(item);
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(8px)';
-    el.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
-    parent.appendChild(el);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        el.style.opacity = '1';
-        el.style.transform = 'translateY(0)';
-      });
-    });
-  });
-}
-
 function toast(msg, type) {
   type = type || 'info';
   const el = document.createElement('div');
@@ -65,8 +49,8 @@ $$('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.targe
 
 // ===== AVATAR UTILITY =====
 const AVATAR_COLORS = [
-  ['#5b8cff','#3b6fdf'], ['#22d68b','#18b875'], ['#ff9447','#e67320'],
-  ['#7c5cff','#5c3cdf'], ['#ff4760','#df273f'], ['#ffd647','#dfb627'],
+  ['#6c63ff','#8b5cf6'], ['#10d48e','#0ab57a'], ['#ff8a50','#ff6b35'],
+  ['#8880ff','#6850df'], ['#ff5470','#ff3350'], ['#ffcd4a','#f0b830'],
   ['#ff6b9d','#df4b7d'], ['#00d4aa','#00b48a'], ['#a78bfa','#876bda'],
   ['#f472b6','#d45296'],
 ];
@@ -96,8 +80,7 @@ function setLoading(id, loading) {
 // ===== STATE =====
 const state = {
   convId: null,
-  conversations: [],
-  currentConvIdx: -1,
+  conversations: JSON.parse(localStorage.getItem('sd_history') || '[]'),
   stats: null,
   orders: [],
   tickets: [],
@@ -106,6 +89,10 @@ const state = {
   policies: {},
   loading: false,
 };
+
+function saveHistory() {
+  localStorage.setItem('sd_history', JSON.stringify(state.conversations.slice(0, 50)));
+}
 
 // ===== NAVIGATION =====
 let currentPage = 'chat';
@@ -121,18 +108,15 @@ function navigate(page) {
   if (page !== 'chat') loadPage(page);
 }
 
-// Sidebar nav
 $$('.nav-item[data-page]').forEach(item => {
   item.addEventListener('click', () => navigate(item.dataset.page));
 });
 
-// Overlay
 $('#sidebarOverlay')?.addEventListener('click', () => {
   $('#sidebar').classList.remove('open');
   $('#sidebarOverlay').classList.remove('active');
 });
 
-// Mobile menu
 $('#menuBtn')?.addEventListener('click', () => {
   $('#sidebar').classList.toggle('open');
   $('#sidebarOverlay').classList.toggle('active');
@@ -172,47 +156,205 @@ $('#clearChatBtn')?.addEventListener('click', () => {
   toast('Conversation cleared', 'info');
 });
 
-function newChat() {
-  state.convId = null;
-  chatInput.value = '';
-  chatInput.style.height = 'auto';
-  sendBtn.disabled = true;
-  $$('.msg').forEach(m => m.remove());
-  $('.thinking')?.remove();
-  showWelcome();
-  navigate('chat');
+// ===== CHAT HISTORY =====
+let historyOpen = window.innerWidth > 768;
+
+function toggleHistory() {
+  historyOpen = !historyOpen;
+  const el = $('#chatHistory');
+  if (window.innerWidth > 768) {
+    el.classList.toggle('collapsed', !historyOpen);
+  } else {
+    el.classList.toggle('open', historyOpen);
+  }
+  renderHistory();
 }
 
-// ===== VOICE =====
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-let isListening = false;
+$('#historyToggleBtn')?.addEventListener('click', toggleHistory);
+$('#closeHistoryBtn')?.addEventListener('click', toggleHistory);
 
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.lang = 'en-US';
-  recognition.onresult = function(e) {
-    chatInput.value = e.results[0][0].transcript;
-    autoResize(); sendBtn.disabled = false;
-    micBtn.classList.remove('recording'); isListening = false;
-    send();
-  };
-  recognition.onerror = function() {
-    micBtn.classList.remove('recording'); isListening = false;
-    toast('Voice input failed', 'error');
-  };
-  recognition.onend = function() {
-    micBtn.classList.remove('recording'); isListening = false;
-  };
+function renderHistory() {
+  const list = $('#chatHistoryList');
+  if (!state.conversations.length) {
+    list.innerHTML = '<div class="chat-history-empty">No conversation history yet</div>';
+    return;
+  }
+  list.innerHTML = state.conversations.map((c, i) => {
+    const msgs = c.messages || [];
+    const lastMsg = msgs[msgs.length - 1];
+    const preview = lastMsg ? lastMsg.text.slice(0, 40) : c.label;
+    const time = lastMsg ? lastMsg.time : '';
+    const active = c.id === state.convId ? 'active' : '';
+    return `<div class="chat-history-item ${active}" data-idx="${i}">
+      <div class="chat-history-item-label">${esc(c.label)}</div>
+      <div class="chat-history-item-meta">
+        <span class="chat-history-item-preview">${esc(preview)}</span>
+        <span class="chat-history-item-time">${esc(time)}</span>
+        <button class="del-btn" data-idx="${i}" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.chat-history-item').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.del-btn')) return;
+      const idx = parseInt(el.dataset.idx);
+      loadConversation(idx);
+    });
+  });
+  list.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx);
+      state.conversations.splice(idx, 1);
+      saveHistory();
+      if (state.currentConvIdx === idx || state.conversations.length === 0) newChat();
+      else if (state.currentConvIdx > idx) state.currentConvIdx--;
+      renderHistory();
+      toast('Conversation deleted', 'info');
+    });
+  });
 }
 
-micBtn?.addEventListener('click', () => {
-  if (!recognition) { toast('Voice not supported in this browser', 'info'); return; }
-  if (isListening) { recognition.stop(); micBtn.classList.remove('recording'); isListening = false; return; }
-  try { recognition.start(); micBtn.classList.add('recording'); isListening = true; } catch { toast('Voice unavailable', 'error'); }
+function loadConversation(idx) {
+  const conv = state.conversations[idx];
+  if (!conv) return;
+  newChat(true);
+  state.currentConvIdx = idx;
+  state.convId = conv.id;
+  for (const msg of conv.messages) {
+    pushMsg(msg.text, msg.role, msg.time);
+  }
+  scrollChat();
+  if (window.innerWidth <= 768) toggleHistory();
+  renderHistory();
+}
+
+// ===== VOICE RECORDING (WhatsApp-style) =====
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingTimer = null;
+let recordingSeconds = 0;
+let isVoiceRecording = false;
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+let voiceRecognition = null;
+
+if (SpeechRecognitionAPI) {
+  voiceRecognition = new SpeechRecognitionAPI();
+  voiceRecognition.continuous = true;
+  voiceRecognition.interimResults = true;
+  voiceRecognition.lang = 'en-US';
+}
+
+function startVoiceRecording(e) {
+  if (!voiceRecognition) { toast('Voice not supported in this browser', 'info'); return; }
+  e.preventDefault();
+  isVoiceRecording = true;
+  recordingSeconds = 0;
+  audioChunks = [];
+  micBtn.classList.add('recording');
+  $('#inputContainer').classList.add('recording');
+  $('#voiceRecorder').classList.add('active');
+  updateVoiceTimer();
+
+  recordingTimer = setInterval(() => {
+    recordingSeconds++;
+    updateVoiceTimer();
+  }, 1000);
+
+  try {
+    voiceRecognition.start();
+  } catch { toast('Voice unavailable', 'error'); stopVoiceRecording(true); }
+}
+
+function updateVoiceTimer() {
+  const m = String(Math.floor(recordingSeconds / 60)).padStart(2, '0');
+  const s = String(recordingSeconds % 60).padStart(2, '0');
+  $('#voiceTimer').textContent = `${m}:${s}`;
+}
+
+function stopVoiceRecording(cancel) {
+  if (!isVoiceRecording) return;
+  isVoiceRecording = false;
+  clearInterval(recordingTimer);
+  micBtn.classList.remove('recording');
+  $('#inputContainer').classList.remove('recording');
+  $('#voiceRecorder').classList.remove('active');
+
+  if (voiceRecognition) {
+    try { voiceRecognition.stop(); } catch {}
+  }
+
+  if (!cancel && audioChunks.length) {
+    voiceRecognition.onresult = null;
+  }
+}
+
+micBtn?.addEventListener('mousedown', startVoiceRecording);
+micBtn?.addEventListener('touchstart', startVoiceRecording, { passive: true });
+
+document.addEventListener('mouseup', () => {
+  if (isVoiceRecording) {
+    isVoiceRecording = false;
+    clearInterval(recordingTimer);
+    micBtn.classList.remove('recording');
+    $('#inputContainer').classList.remove('recording');
+    $('#voiceRecorder').classList.remove('active');
+    if (voiceRecognition) {
+      try { voiceRecognition.stop(); } catch {}
+    }
+  }
 });
+
+document.addEventListener('touchend', () => {
+  if (isVoiceRecording) {
+    isVoiceRecording = false;
+    clearInterval(recordingTimer);
+    micBtn.classList.remove('recording');
+    $('#inputContainer').classList.remove('recording');
+    $('#voiceRecorder').classList.remove('active');
+    if (voiceRecognition) {
+      try { voiceRecognition.stop(); } catch {}
+    }
+  }
+});
+
+if (voiceRecognition) {
+  voiceRecognition.onresult = function(e) {
+    let transcript = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    audioChunks = transcript ? [transcript] : [];
+
+    if (!isVoiceRecording) {
+      handleVoiceResult();
+    }
+  };
+
+  voiceRecognition.onerror = function() {
+    stopVoiceRecording(true);
+    toast('Voice recognition failed', 'error');
+  };
+
+  voiceRecognition.onend = function() {
+    if (isVoiceRecording) {
+      try { voiceRecognition.start(); } catch {}
+    } else {
+      handleVoiceResult();
+    }
+  };
+}
+
+function handleVoiceResult() {
+  const text = audioChunks.join(' ');
+  if (!text.trim()) return;
+  chatInput.value = text;
+  autoResize();
+  sendBtn.disabled = false;
+  if (text.trim().length > 2) send();
+  else toast('Voice text sent', 'info');
+}
 
 // ===== SEND =====
 async function send() {
@@ -223,6 +365,8 @@ async function send() {
     state.conversations.unshift({ id: uid(), label: text.slice(0, 50) + (text.length > 50 ? '...' : ''), messages: [] });
     state.currentConvIdx = 0;
     state.convId = state.conversations[0].id;
+    saveHistory();
+    renderHistory();
   }
 
   state.loading = true;
@@ -239,7 +383,9 @@ async function send() {
   try {
     const res = await API.post('/api/chat', { message: text, conversation_id: state.convId });
     state.convId = res.conversation_id;
-    if (state.currentConvIdx >= 0) state.conversations[state.currentConvIdx].id = res.conversation_id;
+    if (state.currentConvIdx >= 0) {
+      state.conversations[state.currentConvIdx].id = res.conversation_id;
+    }
     hideThinking();
 
     if (res.tool_calls && res.tool_calls.length) {
@@ -254,8 +400,11 @@ async function send() {
     scrollChat();
 
     if (state.currentConvIdx >= 0) {
-      const first = state.conversations[state.currentConvIdx].messages[0];
-      state.conversations[state.currentConvIdx].label = first ? (first.text.slice(0, 50) + (first.text.length > 50 ? '...' : '')) : 'Chat';
+      const conv = state.conversations[state.currentConvIdx];
+      const first = conv.messages[0];
+      conv.label = first ? (first.text.slice(0, 50) + (first.text.length > 50 ? '...' : '')) : 'Chat';
+      saveHistory();
+      renderHistory();
     }
   } catch {
     hideThinking();
@@ -275,15 +424,31 @@ function pushMsg(text, role, time) {
   const d = document.createElement('div');
   d.className = `msg ${role}`;
   const t = time || now();
-  const avatar = role === 'assistant' ? 'AI' : role === 'user' ? 'U' : '';
-  const extra = role === 'tool' ? '' : `<div class="msg-time">${t}</div>`;
-  d.innerHTML = role === 'tool'
-    ? `<div class="msg-body"><div class="msg-bubble">${esc(text)}</div></div>`
-    : `<div class="msg-avatar">${avatar}</div><div class="msg-body"><div class="msg-bubble">${escapeMsg(text)}</div>${extra}</div>`;
+
+  if (role === 'tool') {
+    d.innerHTML = `<div class="msg-body"><div class="msg-bubble">${esc(text)}</div></div>`;
+  } else if (role === 'voice') {
+    const dur = text.match(/^\[(\d+:\d+)\]/)?.[1] || '0:00';
+    d.innerHTML = `<div class="msg-avatar">U</div><div class="msg-body">
+      <div class="msg-bubble">
+        <div class="msg-voice-wave"><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="msg-voice-duration">${dur}</span>
+      </div>
+      <div class="msg-time">${t}</div>
+    </div>`;
+  } else {
+    const avatar = role === 'assistant' ? 'AI' : 'U';
+    d.innerHTML = `<div class="msg-avatar">${avatar}</div><div class="msg-body">
+      <div class="msg-bubble">${escapeMsg(text)}</div>
+      <div class="msg-time">${t}</div>
+    </div>`;
+  }
+
   chatMessages.appendChild(d);
 
   if (state.currentConvIdx >= 0) {
     state.conversations[state.currentConvIdx].messages.push({ role, text, time: t });
+    saveHistory();
   }
 }
 
@@ -299,6 +464,19 @@ function showThinking() {
 function hideThinking() { $('.thinking')?.remove(); }
 function scrollChat() { chatMessages.scrollTop = chatMessages.scrollHeight; }
 function now() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+
+function newChat(silent) {
+  state.convId = null;
+  state.currentConvIdx = -1;
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  sendBtn.disabled = true;
+  $$('.msg').forEach(m => m.remove());
+  $('.thinking')?.remove();
+  showWelcome();
+  if (currentPage !== 'chat') navigate('chat');
+  if (!silent) renderHistory();
+}
 
 function showWelcome() {
   if ($('.welcome')) return;
@@ -352,14 +530,15 @@ async function loadDashboard() {
 
 $('#refreshDashboardBtn')?.addEventListener('click', () => { loadDashboard(); toast('Dashboard refreshed', 'success'); });
 
-// Dashboard search
-$('#dashboardSearch')?.addEventListener('input', debounce(function() {
-  const q = this.value.toLowerCase();
-  $$('.stat-card').forEach(card => {
-    const text = card.textContent.toLowerCase();
-    card.style.display = text.includes(q) ? 'flex' : 'none';
+// Period selector
+$$('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadDashboard();
+    toast(`Showing: ${btn.textContent}`, 'info');
   });
-}, 200));
+});
 
 function renderChart(id, data, colors) {
   const c = $(`#${id}`);
@@ -369,7 +548,7 @@ function renderChart(id, data, colors) {
   c.innerHTML = entries.map(([k, v]) =>
     `<div class="chart-bar-wrap">
       <span class="chart-bar-val">${v}</span>
-      <div class="chart-bar" style="height:${(v / max) * 100}%;background:${colors[k] || '#5b8cff'}"></div>
+      <div class="chart-bar" style="height:${(v / max) * 100}%;background:${colors[k] || '#6c63ff'}"></div>
       <span class="chart-bar-label">${k.replace(/_/g, ' ')}</span>
     </div>`
   ).join('');
@@ -433,8 +612,9 @@ function renderOrders(orders) {
   empty.style.display = 'none';
   body.innerHTML = orders.map(o =>
     `<tr>
+      <td class="th-check"><input type="checkbox" class="row-check" value="${esc(o.id)}"></td>
       <td><strong style="color:var(--text);font-weight:600">${esc(o.id)}</strong></td>
-      <td>${esc(o.customer)}</td>
+      <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(o.customer)[0]},${getAvatarColor(o.customer)[1]})">${getInitials(o.customer)}</div>${esc(o.customer)}</div></td>
       <td>${esc(o.items)}</td>
       <td><span style="font-weight:600;color:var(--text)">$${o.total.toFixed(2)}</span></td>
       <td><span class="status-badge ${esc(o.status)}">${esc(o.status)}</span></td>
@@ -449,6 +629,9 @@ function renderOrders(orders) {
       </td>
     </tr>`
   ).join('');
+  $('#orderSelectAll').onclick = function() {
+    $$('.row-check').forEach(c => c.checked = this.checked);
+  };
 }
 
 window.deleteOrder = async function(id) {
@@ -510,8 +693,9 @@ function renderTickets(tickets) {
   empty.style.display = 'none';
   body.innerHTML = tickets.map(t =>
     `<tr>
+      <td class="th-check"><input type="checkbox" class="row-check" value="${esc(t.id)}"></td>
       <td><strong style="color:var(--text);font-weight:600">${esc(t.id)}</strong></td>
-      <td>${esc(t.customer)}</td>
+      <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(t.customer)[0]},${getAvatarColor(t.customer)[1]})">${getInitials(t.customer)}</div>${esc(t.customer)}</div></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.issue)}">${esc(t.issue)}</td>
       <td><span class="priority-badge ${esc(t.priority)}">${esc(t.priority)}</span></td>
       <td><span class="status-badge ${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span></td>
@@ -525,6 +709,9 @@ function renderTickets(tickets) {
       </td>
     </tr>`
   ).join('');
+  $('#ticketSelectAll').onclick = function() {
+    $$('.row-check').forEach(c => c.checked = this.checked);
+  };
 }
 
 window.resolveTicket = async function(id) {
@@ -600,7 +787,7 @@ function renderEscalations(escs) {
   body.innerHTML = escs.map(e =>
     `<tr>
       <td><strong style="color:var(--text);font-weight:600">${esc(e.ticket_id)}</strong></td>
-      <td>${esc(e.customer)}</td>
+      <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(e.customer)[0]},${getAvatarColor(e.customer)[1]})">${getInitials(e.customer)}</div>${esc(e.customer)}</div></td>
       <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.issue)}">${esc(e.issue)}</td>
       <td>${e.escalated_at}</td>
       <td><span class="status-badge ${esc(e.status)}">${esc(e.status)}</span></td>
@@ -653,27 +840,41 @@ function applyCustomerFilters() {
 }
 
 function renderCustomers(customers) {
-  const body = $('#customersBody');
+  const grid = $('#customersGrid');
   const empty = $('#customersEmpty');
-  if (!customers.length) { body.innerHTML = ''; empty.style.display = 'block'; return; }
+  if (!customers.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  body.innerHTML = customers.map(c => {
+  grid.innerHTML = customers.map(c => {
     const [bg1, bg2] = getAvatarColor(c.name);
-    return `<tr>
-      <td>
-        <div class="customer-cell">
-          <div class="customer-avatar-sm" style="background:linear-gradient(135deg,${bg1},${bg2})">${getInitials(c.name)}</div>
-          <div>
-            <div style="color:var(--text);font-weight:600;font-size:13px">${esc(c.name)}</div>
-            <div style="color:var(--text-muted);font-size:10px">${esc(c.id)}</div>
+    return `<div class="customer-card">
+      <div class="customer-card-top">
+        <div class="customer-card-avatar" style="background:linear-gradient(135deg,${bg1},${bg2})">${getInitials(c.name)}</div>
+        <div>
+          <div class="customer-card-name">${esc(c.name)}</div>
+          <div class="customer-card-id">${esc(c.id)}</div>
+        </div>
+      </div>
+      <div class="customer-card-body">
+        <div class="customer-card-email">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          ${esc(c.email)}
+        </div>
+        <div class="customer-card-meta">
+          <div class="customer-card-meta-item">
+            <span class="customer-card-meta-val">${c.orders}</span>
+            <span class="customer-card-meta-lbl">Orders</span>
+          </div>
+          <div class="customer-card-meta-item">
+            <span class="customer-card-meta-val">${c.tickets}</span>
+            <span class="customer-card-meta-lbl">Tickets</span>
+          </div>
+          <div class="customer-card-meta-item">
+            <span class="customer-card-meta-val">${c.member_since.slice(0, 4)}</span>
+            <span class="customer-card-meta-lbl">Since</span>
           </div>
         </div>
-      </td>
-      <td>${esc(c.email)}</td>
-      <td><span style="font-weight:600;color:var(--text)">${c.orders}</span></td>
-      <td><span style="font-weight:600">${c.tickets}</span></td>
-      <td>${c.member_since}</td>
-    </tr>`;
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -717,6 +918,7 @@ $('#policySearch').addEventListener('input', debounce(applyPolicyFilters, 200));
 
 // ===== INIT =====
 showWelcome();
+renderHistory();
 loadDashboard();
 loadOrders();
 loadTickets();
@@ -724,7 +926,7 @@ loadEscalations();
 loadCustomers();
 loadPolicies();
 
-// Keyboard shortcut: Ctrl+/ to focus chat
+// Keyboard shortcut
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === '/') {
     e.preventDefault();
