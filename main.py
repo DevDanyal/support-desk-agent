@@ -1,104 +1,44 @@
 import os
 import sys
-import json
+import openai
 from dotenv import load_dotenv
-from openai import OpenAI
+from agents import Agent, Runner, function_tool, set_tracing_disabled
+from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+import database as db
 
 load_dotenv(override=True)
 
-ORDERS_DB = {
-    "ORD-1001": {"status": "shipped", "date": "2026-06-01", "eta": "2026-06-10"},
-    "ORD-1002": {"status": "processing", "date": "2026-06-05", "eta": "2026-06-15"},
-    "ORD-1003": {"status": "delivered", "date": "2026-05-20", "eta": "2026-05-28"},
+set_tracing_disabled(True)
+
+llm_provider = os.getenv("LLM_PROVIDER", "gemini")
+
+if llm_provider == "ollama":
+    ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    ollama_model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+    _client = openai.AsyncOpenAI(api_key="ollama", base_url=ollama_base)
+    _model = OpenAIChatCompletionsModel(model=ollama_model_name, openai_client=_client)
+else:
+    api_key = os.getenv("GEMINI_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+    model_name = os.getenv("MODEL", "gemini-2.5-flash")
+    _client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url) if api_key else None
+    _model = OpenAIChatCompletionsModel(model=model_name, openai_client=_client) if _client else None
+
+RETURN_POLICIES = {
+    "electronics": "30-day return window. Items must be unopened. Restocking fee of 15% applies.",
+    "clothing": "60-day return window. Items must have tags attached. Free returns.",
+    "furniture": "14-day return window. Pickup fee may apply. Must be in original packaging.",
 }
 
-TICKETS_DB = {
-    "TKT-5001": {"status": "open", "priority": "high", "issue": "Wrong item received"},
-    "TKT-5002": {"status": "in_progress", "priority": "medium", "issue": "Refund not processed"},
-    "TKT-5003": {"status": "resolved", "priority": "low", "issue": "Shipping address change"},
-}
 
-ESCALATION_QUEUE = []
-
-
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lookup_order_status",
-            "description": "Look up the status of a customer order.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "The order ID to look up (e.g. ORD-1001).",
-                    }
-                },
-                "required": ["order_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_return_policy",
-            "description": "Check the return policy for a given item category.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "item_category": {
-                        "type": "string",
-                        "description": "The category of the item (e.g. electronics, clothing, furniture).",
-                    }
-                },
-                "required": ["item_category"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_ticket_status",
-            "description": "Check the status of a support ticket.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "ticket_id": {
-                        "type": "string",
-                        "description": "The ticket ID to look up (e.g. TKT-5001).",
-                    }
-                },
-                "required": ["ticket_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "escalate_to_human",
-            "description": "Escalate a customer issue to a human support agent.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "customer_name": {
-                        "type": "string",
-                        "description": "The name of the customer.",
-                    },
-                    "issue_description": {
-                        "type": "string",
-                        "description": "A description of the issue to escalate.",
-                    },
-                },
-                "required": ["customer_name", "issue_description"],
-            },
-        },
-    },
-]
-
-
+@function_tool
 def lookup_order_status(order_id: str) -> str:
-    order = ORDERS_DB.get(order_id)
+    """Look up the status of a customer order by order ID.
+
+    Args:
+        order_id: The order ID to look up (e.g. ORD-1001).
+    """
+    order = db.get_order(order_id)
     if not order:
         return f"Order {order_id} not found. Please verify the order ID."
     return (
@@ -107,20 +47,27 @@ def lookup_order_status(order_id: str) -> str:
     )
 
 
+@function_tool
 def check_return_policy(item_category: str) -> str:
-    policies = {
-        "electronics": "30-day return window. Items must be unopened. Restocking fee of 15% applies.",
-        "clothing": "60-day return window. Items must have tags attached. Free returns.",
-        "furniture": "14-day return window. Pickup fee may apply. Must be in original packaging.",
-    }
-    policy = policies.get(item_category.lower())
+    """Check the return policy for a given item category.
+
+    Args:
+        item_category: The category of the item (e.g. electronics, clothing, furniture).
+    """
+    policy = RETURN_POLICIES.get(item_category.lower())
     if not policy:
-        return f"Sorry, no return policy found for '{item_category}'. Available categories: {', '.join(policies.keys())}."
+        return f"Sorry, no return policy found for '{item_category}'. Available categories: {', '.join(RETURN_POLICIES.keys())}."
     return f"Return policy for {item_category}: {policy}"
 
 
+@function_tool
 def check_ticket_status(ticket_id: str) -> str:
-    ticket = TICKETS_DB.get(ticket_id)
+    """Check the status of a support ticket by ticket ID.
+
+    Args:
+        ticket_id: The ticket ID to look up (e.g. TKT-5001).
+    """
+    ticket = db.get_ticket(ticket_id)
     if not ticket:
         return f"Ticket {ticket_id} not found. Please verify the ticket ID."
     return (
@@ -129,25 +76,20 @@ def check_ticket_status(ticket_id: str) -> str:
     )
 
 
+@function_tool
 def escalate_to_human(customer_name: str, issue_description: str) -> str:
-    ticket_id = f"TKT-{len(ESCALATION_QUEUE) + 6000}"
-    ESCALATION_QUEUE.append({
-        "ticket_id": ticket_id,
-        "customer": customer_name,
-        "issue": issue_description,
-    })
+    """Escalate a customer issue to a human support agent.
+
+    Args:
+        customer_name: The name of the customer.
+        issue_description: A description of the issue to escalate.
+    """
+    ticket_id = db.get_next_escalation_id()
+    db.create_escalation(ticket_id, customer_name, issue_description)
     return (
         f"Your issue has been escalated. A human agent will follow up within 24 hours. "
         f"Your escalation ticket ID is {ticket_id}."
     )
-
-
-TOOL_MAP = {
-    "lookup_order_status": lookup_order_status,
-    "check_return_policy": check_return_policy,
-    "check_ticket_status": check_ticket_status,
-    "escalate_to_human": escalate_to_human,
-}
 
 
 SYSTEM_PROMPT = (
@@ -160,66 +102,32 @@ SYSTEM_PROMPT = (
     "apologise and offer to escalate."
 )
 
+agent = Agent(
+    name="Support Agent",
+    instructions=SYSTEM_PROMPT,
+    tools=[lookup_order_status, check_return_policy, check_ticket_status, escalate_to_human],
+    model=_model,
+)
+
 
 def main():
     print("Support Desk Agent")
     print("=" * 50)
 
-    api_key = os.getenv("GEMINI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    model = os.getenv("MODEL", "gemini-2.0-flash")
-
-    if not api_key:
-        print("Error: GEMINI_API_KEY not set in .env file.")
+    if not _client:
+        print("Error: No LLM configured. Set GEMINI_API_KEY or LLM_PROVIDER=ollama.")
         return
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
-
-    def chat(question: str) -> str:
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ]
-
-        for _ in range(5):
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-            )
-
-            choice = response.choices[0]
-            if choice.finish_reason == "stop":
-                return choice.message.content
-
-            if choice.finish_reason == "tool_calls":
-                messages.append(choice.message)
-                for tool_call in choice.message.tool_calls:
-                    fn = tool_call.function
-                    handler = TOOL_MAP.get(fn.name)
-                    if handler:
-                        args = json.loads(fn.arguments)
-                        result = handler(**args)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": result,
-                        })
-                    else:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": f"Unknown tool: {fn.name}",
-                        })
-
-        return "Sorry, I couldn't process your request."
+    db.init_db()
 
     if len(sys.argv) > 1:
         question = " ".join(sys.argv[1:])
         print(f"\nYou: {question}")
-        answer = chat(question)
-        print(f"\nAgent: {answer}")
+        try:
+            result = Runner.run_sync(agent, question)
+            print(f"\nAgent: {result.final_output}")
+        except Exception as e:
+            print(f"\nError: {e}")
     else:
         print("Type 'exit' or 'quit' to end the conversation.\n")
         while True:
@@ -230,8 +138,8 @@ def main():
                     break
                 if not user_input:
                     continue
-                answer = chat(user_input)
-                print(f"\nAgent: {answer}\n")
+                result = Runner.run_sync(agent, user_input)
+                print(f"\nAgent: {result.final_output}\n")
             except (EOFError, KeyboardInterrupt):
                 print("\nGoodbye!")
                 break

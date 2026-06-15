@@ -32,10 +32,10 @@ function toast(msg, type) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
-  $('#toastContainer').appendChild(el);
+  $('#toastBox').appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
-    el.style.transform = 'translateX(28px) scale(0.95)';
+    el.style.transform = 'translateX(24px) scale(0.95)';
     el.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
     setTimeout(() => el.remove(), 300);
   }, 3000);
@@ -47,12 +47,11 @@ function closeModal(id) { $(`#${id}`).classList.remove('active'); }
 $$('[data-modal]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.modal)));
 $$('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModal(o.id); }));
 
-// ===== AVATAR UTILITY =====
 const AVATAR_COLORS = [
-  ['#6c63ff','#8b5cf6'], ['#10d48e','#0ab57a'], ['#ff8a50','#ff6b35'],
-  ['#8880ff','#6850df'], ['#ff5470','#ff3350'], ['#ffcd4a','#f0b830'],
-  ['#ff6b9d','#df4b7d'], ['#00d4aa','#00b48a'], ['#a78bfa','#876bda'],
-  ['#f472b6','#d45296'],
+  ['#d4a44a','#c49530'], ['#30c88b','#28a875'], ['#e89050','#d87840'],
+  ['#9080e8','#7860d0'], ['#e05560','#c84050'], ['#60b0e0','#4898c8'],
+  ['#e87aa0','#d06080'], ['#50d0b0','#38b898'], ['#a090e8','#8878d0'],
+  ['#e8a060','#d08848'],
 ];
 
 function getAvatarColor(name) {
@@ -65,21 +64,19 @@ function getInitials(name) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-// ===== DEBOUNCE =====
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
-// ===== LOADING STATE =====
 function setLoading(id, loading) {
   const el = $(`#${id}`);
   if (!el) return;
   el.classList.toggle('active', loading);
 }
 
-// ===== STATE =====
 const state = {
   convId: null,
+  currentConvIdx: -1,
   conversations: JSON.parse(localStorage.getItem('sd_history') || '[]'),
   stats: null,
   orders: [],
@@ -94,7 +91,6 @@ function saveHistory() {
   localStorage.setItem('sd_history', JSON.stringify(state.conversations.slice(0, 50)));
 }
 
-// ===== NAVIGATION =====
 let currentPage = 'chat';
 
 function navigate(page) {
@@ -123,11 +119,10 @@ $('#menuBtn')?.addEventListener('click', () => {
 });
 
 function loadPage(page) {
-  const f = { dashboard: loadDashboard, orders: loadOrders, tickets: loadTickets, escalations: loadEscalations, customers: loadCustomers, policies: loadPolicies };
+  const f = { dashboard: loadDashboard, orders: loadOrders, tickets: loadTickets, escalations: loadEscalations, customers: loadCustomers, policies: loadPolicies, history: () => renderHistory() };
   if (f[page]) f[page]();
 }
 
-// ===== CHAT =====
 const chatInput = $('#chatInput');
 const sendBtn = $('#sendBtn');
 const chatMessages = $('#chatMessages');
@@ -148,7 +143,6 @@ chatMessages.addEventListener('click', e => {
   if (chip) { chatInput.value = chip.dataset.msg; autoResize(); send(); }
 });
 
-// New chat button
 $('#newChatBtnSm')?.addEventListener('click', newChat);
 $('#clearChatBtn')?.addEventListener('click', () => {
   if (state.currentConvIdx < 0 && !$('.msg')) { toast('No conversation to clear', 'info'); return; }
@@ -156,53 +150,57 @@ $('#clearChatBtn')?.addEventListener('click', () => {
   toast('Conversation cleared', 'info');
 });
 
-// ===== CHAT HISTORY =====
-let historyOpen = window.innerWidth > 768;
-
-function toggleHistory() {
-  historyOpen = !historyOpen;
-  const el = $('#chatHistory');
-  if (window.innerWidth > 768) {
-    el.classList.toggle('collapsed', !historyOpen);
-  } else {
-    el.classList.toggle('open', historyOpen);
-  }
-  renderHistory();
-}
-
-$('#historyToggleBtn')?.addEventListener('click', toggleHistory);
-$('#closeHistoryBtn')?.addEventListener('click', toggleHistory);
-
 function renderHistory() {
-  const list = $('#chatHistoryList');
+  const list = $('#historyList');
+  if (!list) return;
   if (!state.conversations.length) {
-    list.innerHTML = '<div class="chat-history-empty">No conversation history yet</div>';
+    list.innerHTML = '<div class="empty-state">No conversations yet</div>';
     return;
   }
-  list.innerHTML = state.conversations.map((c, i) => {
+  list.innerHTML = state.conversations.toReversed().map((c, ri) => {
+    const i = state.conversations.length - 1 - ri;
     const msgs = c.messages || [];
     const lastMsg = msgs[msgs.length - 1];
-    const preview = lastMsg ? lastMsg.text.slice(0, 40) : c.label;
+    const preview = lastMsg ? lastMsg.text.slice(0, 60) : c.label;
     const time = lastMsg ? lastMsg.time : '';
-    const active = c.id === state.convId ? 'active' : '';
-    return `<div class="chat-history-item ${active}" data-idx="${i}">
-      <div class="chat-history-item-label">${esc(c.label)}</div>
-      <div class="chat-history-item-meta">
-        <span class="chat-history-item-preview">${esc(preview)}</span>
-        <span class="chat-history-item-time">${esc(time)}</span>
-        <button class="del-btn" data-idx="${i}" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+    return `<div class="history-item" data-idx="${i}">
+      <div class="history-item-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <div class="history-item-body">
+        <div class="history-item-title">${esc(c.label)}</div>
+        <div class="history-item-meta">
+          <span class="history-item-preview">${esc(preview)}</span>
+          <span class="history-item-time">${esc(time)}</span>
+        </div>
+      </div>
+      <div class="history-item-actions">
+        <button class="history-item-del" data-idx="${i}" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
       </div>
     </div>`;
   }).join('');
 
-  list.querySelectorAll('.chat-history-item').forEach(el => {
+  list.querySelectorAll('.history-item').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target.closest('.del-btn')) return;
+      if (e.target.closest('.history-item-del')) return;
       const idx = parseInt(el.dataset.idx);
-      loadConversation(idx);
+      const conv = state.conversations[idx];
+      if (!conv) return;
+      state.currentConvIdx = idx;
+      state.convId = conv.id;
+      navigate('chat');
+      chatMessages.innerHTML = '';
+      const messages = [...conv.messages];
+      for (const msg of messages) {
+        pushMsg(msg.text, msg.role, msg.time, false);
+      }
+      scrollChat();
+      renderHistory();
     });
   });
-  list.querySelectorAll('.del-btn').forEach(btn => {
+  list.querySelectorAll('.history-item-del').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.idx);
@@ -216,22 +214,16 @@ function renderHistory() {
   });
 }
 
-function loadConversation(idx) {
-  const conv = state.conversations[idx];
-  if (!conv) return;
-  newChat(true);
-  $('.welcome')?.remove();
-  state.currentConvIdx = idx;
-  state.convId = conv.id;
-  for (const msg of conv.messages) {
-    pushMsg(msg.text, msg.role, msg.time);
-  }
-  scrollChat();
-  if (window.innerWidth <= 768) toggleHistory();
+$('#clearAllHistoryBtn')?.addEventListener('click', () => {
+  if (!state.conversations.length) { toast('No history to clear', 'info'); return; }
+  state.conversations = [];
+  state.currentConvIdx = -1;
+  saveHistory();
+  newChat();
   renderHistory();
-}
+  toast('All history cleared', 'info');
+});
 
-// ===== VOICE RECORDING (WhatsApp-style) =====
 let mediaRecorder = null;
 let audioChunks = [];
 let recordingTimer = null;
@@ -248,30 +240,27 @@ if (SpeechRecognitionAPI) {
 }
 
 function startVoiceRecording(e) {
-  if (!voiceRecognition) { toast('Voice not supported in this browser', 'info'); return; }
+  if (!voiceRecognition) { toast('Voice not supported', 'info'); return; }
   e.preventDefault();
   isVoiceRecording = true;
   recordingSeconds = 0;
   audioChunks = [];
   micBtn.classList.add('recording');
-  $('#inputContainer').classList.add('recording');
-  $('#voiceRecorder').classList.add('active');
+  $('#voiceBar').classList.add('active');
   updateVoiceTimer();
-
   recordingTimer = setInterval(() => {
     recordingSeconds++;
     updateVoiceTimer();
   }, 1000);
-
   try {
     voiceRecognition.start();
   } catch { toast('Voice unavailable', 'error'); stopVoiceRecording(true); }
 }
 
 function updateVoiceTimer() {
-  const m = String(Math.floor(recordingSeconds / 60)).padStart(2, '0');
-  const s = String(recordingSeconds % 60).padStart(2, '0');
-  $('#voiceTimer').textContent = `${m}:${s}`;
+  const m = Math.floor(recordingSeconds / 60);
+  const s = recordingSeconds % 60;
+  $('#voiceTimer').textContent = `${m}:${String(s).padStart(2,'0')}`;
 }
 
 function stopVoiceRecording(cancel) {
@@ -279,13 +268,10 @@ function stopVoiceRecording(cancel) {
   isVoiceRecording = false;
   clearInterval(recordingTimer);
   micBtn.classList.remove('recording');
-  $('#inputContainer').classList.remove('recording');
-  $('#voiceRecorder').classList.remove('active');
-
+  $('#voiceBar').classList.remove('active');
   if (voiceRecognition) {
     try { voiceRecognition.stop(); } catch {}
   }
-
   if (!cancel && audioChunks.length) {
     voiceRecognition.onresult = null;
   }
@@ -295,29 +281,10 @@ micBtn?.addEventListener('mousedown', startVoiceRecording);
 micBtn?.addEventListener('touchstart', startVoiceRecording, { passive: true });
 
 document.addEventListener('mouseup', () => {
-  if (isVoiceRecording) {
-    isVoiceRecording = false;
-    clearInterval(recordingTimer);
-    micBtn.classList.remove('recording');
-    $('#inputContainer').classList.remove('recording');
-    $('#voiceRecorder').classList.remove('active');
-    if (voiceRecognition) {
-      try { voiceRecognition.stop(); } catch {}
-    }
-  }
+  if (isVoiceRecording) { stopVoiceRecording(false); }
 });
-
 document.addEventListener('touchend', () => {
-  if (isVoiceRecording) {
-    isVoiceRecording = false;
-    clearInterval(recordingTimer);
-    micBtn.classList.remove('recording');
-    $('#inputContainer').classList.remove('recording');
-    $('#voiceRecorder').classList.remove('active');
-    if (voiceRecognition) {
-      try { voiceRecognition.stop(); } catch {}
-    }
-  }
+  if (isVoiceRecording) { stopVoiceRecording(false); }
 });
 
 if (voiceRecognition) {
@@ -327,17 +294,12 @@ if (voiceRecognition) {
       transcript += e.results[i][0].transcript;
     }
     audioChunks = transcript ? [transcript] : [];
-
-    if (!isVoiceRecording) {
-      handleVoiceResult();
-    }
+    if (!isVoiceRecording) { handleVoiceResult(); }
   };
-
   voiceRecognition.onerror = function() {
     stopVoiceRecording(true);
     toast('Voice recognition failed', 'error');
   };
-
   voiceRecognition.onend = function() {
     if (isVoiceRecording) {
       try { voiceRecognition.start(); } catch {}
@@ -354,10 +316,9 @@ function handleVoiceResult() {
   autoResize();
   sendBtn.disabled = false;
   if (text.trim().length > 2) send();
-  else toast('Voice text sent', 'info');
+  else toast('Voice text captured', 'info');
 }
 
-// ===== SEND =====
 async function send() {
   const text = chatInput.value.trim();
   if (!text || state.loading) return;
@@ -391,7 +352,7 @@ async function send() {
 
     if (res.tool_calls && res.tool_calls.length) {
       for (const tc of res.tool_calls) {
-        pushMsg(`🔧 Used ${tc.tool} → ${tc.result}`, 'tool', now());
+        pushMsg(`Used ${tc.tool} \u2192 ${tc.result}`, 'tool', now());
         scrollChat();
       }
     }
@@ -409,7 +370,7 @@ async function send() {
     }
   } catch {
     hideThinking();
-    pushMsg('Sorry, I encountered an error connecting to the server. Please try again.', 'assistant');
+    pushMsg('Sorry, I encountered an error. Please try again.', 'assistant');
   } finally {
     state.loading = false;
     sendBtn.disabled = true;
@@ -421,24 +382,15 @@ function escapeMsg(text) {
   return esc(text).replace(/\n/g, '<br>');
 }
 
-function pushMsg(text, role, time) {
+function pushMsg(text, role, time, save = true) {
   const d = document.createElement('div');
   d.className = `msg ${role}`;
   const t = time || now();
 
   if (role === 'tool') {
     d.innerHTML = `<div class="msg-body"><div class="msg-bubble">${esc(text)}</div></div>`;
-  } else if (role === 'voice') {
-    const dur = text.match(/^\[(\d+:\d+)\]/)?.[1] || '0:00';
-    d.innerHTML = `<div class="msg-avatar">U</div><div class="msg-body">
-      <div class="msg-bubble">
-        <div class="msg-voice-wave"><span></span><span></span><span></span><span></span><span></span></div>
-        <span class="msg-voice-duration">${dur}</span>
-      </div>
-      <div class="msg-time">${t}</div>
-    </div>`;
   } else {
-    const avatar = role === 'assistant' ? 'AI' : 'U';
+    const avatar = role === 'assistant' ? 'A' : 'U';
     d.innerHTML = `<div class="msg-avatar">${avatar}</div><div class="msg-body">
       <div class="msg-bubble">${escapeMsg(text)}</div>
       <div class="msg-time">${t}</div>
@@ -447,7 +399,7 @@ function pushMsg(text, role, time) {
 
   chatMessages.appendChild(d);
 
-  if (state.currentConvIdx >= 0) {
+  if (save && state.currentConvIdx >= 0) {
     state.conversations[state.currentConvIdx].messages.push({ role, text, time: t });
     saveHistory();
   }
@@ -469,6 +421,7 @@ function now() { return new Date().toLocaleTimeString([], { hour: '2-digit', min
 function newChat(silent) {
   state.convId = null;
   state.currentConvIdx = -1;
+  state.loading = false;
   chatInput.value = '';
   chatInput.style.height = 'auto';
   sendBtn.disabled = true;
@@ -484,45 +437,37 @@ function showWelcome() {
   const w = document.createElement('div');
   w.className = 'welcome';
   w.innerHTML = `
-    <div class="welcome-icon">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+    <div class="welcome-glyph">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
     </div>
-    <h1>How can I help you today?</h1>
-    <p>Ask me about orders, support tickets, return policies, or escalate issues to a human agent.</p>
-    <div class="suggestion-chips">
-      <button class="chip" data-msg="What is the status of order ORD-1001?"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg> Track Order</button>
-      <button class="chip" data-msg="What is the return policy for electronics?"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Return Policy</button>
-      <button class="chip" data-msg="Check the status of support ticket TKT-5001"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Check Ticket</button>
-      <button class="chip" data-msg="I need to escalate an issue about a damaged product"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> Escalate Issue</button>
+    <h1 class="welcome-title">How can I help you?</h1>
+    <p class="welcome-desc">I can check orders, look up policies, track tickets, and escalate issues when needed.</p>
+    <div class="welcome-chips">
+      <button class="chip" data-msg="What is the status of order ORD-1001?"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg> Track order</button>
+      <button class="chip" data-msg="What is the return policy for electronics?"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Return policy</button>
+      <button class="chip" data-msg="Check the status of support ticket TKT-5001"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Check ticket</button>
+      <button class="chip" data-msg="I need to escalate an issue about a damaged product"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> Escalate issue</button>
     </div>`;
   chatMessages.appendChild(w);
 }
 
-// ===== DASHBOARD =====
 async function loadDashboard() {
   setLoading('dashboardLoading', true);
   try {
     state.stats = await API.get('/api/stats');
-    animateCount($('#statOrders'), state.stats.total_orders);
-    animateCount($('#statTickets'), state.stats.total_tickets);
-    animateCount($('#statCustomers'), state.stats.total_customers);
-    $('#statRevenue').textContent = `$${Math.round(state.stats.revenue)}`;
-    animateCount($('#statEscalations'), state.stats.pending_escalations);
-    const pendingOrders = (state.stats.order_statuses.processing || 0) + (state.stats.order_statuses.shipped || 0);
-    animateCount($('#statPendingOrders'), pendingOrders);
-    $('#ordersBadge').textContent = state.stats.total_orders;
-    $('#ticketsBadge').textContent = state.stats.total_tickets;
-    $('#escBadge').textContent = state.stats.pending_escalations;
-
+    renderMetrics(state.stats);
     const oCount = state.stats.total_orders;
     const tCount = state.stats.total_tickets;
     $('#orderBadge').textContent = `${oCount} order${oCount !== 1 ? 's' : ''}`;
     $('#ticketBadge').textContent = `${tCount} ticket${tCount !== 1 ? 's' : ''}`;
     const urgentCount = state.stats.priority_counts.urgent || 0;
     $('#priorityBadge').textContent = `${urgentCount} urgent`;
+    $('#ordersBadge').textContent = state.stats.total_orders;
+    $('#ticketsBadge').textContent = state.stats.total_tickets;
+    $('#escBadge').textContent = state.stats.pending_escalations;
 
-    renderChart('orderChart', state.stats.order_statuses, { processing: '#6c63ff', shipped: '#8880ff', delivered: '#10d48e', cancelled: '#ff5470' });
-    renderChart('ticketChart', state.stats.ticket_statuses, { open: '#ff8a50', in_progress: '#6c63ff', resolved: '#10d48e' });
+    renderBarChart('orderChart', state.stats.order_statuses, { processing: '#d4a44a', shipped: '#9080e8', delivered: '#30c88b', cancelled: '#e05560' });
+    renderBarChart('ticketChart', state.stats.ticket_statuses, { open: '#e89050', in_progress: '#d4a44a', resolved: '#30c88b' });
     renderPriorityChart(state.stats.priority_counts);
     renderActivity(state.stats);
   } catch { toast('Failed to load dashboard', 'error'); }
@@ -531,36 +476,70 @@ async function loadDashboard() {
 
 $('#refreshDashboardBtn')?.addEventListener('click', () => { loadDashboard(); toast('Dashboard refreshed', 'success'); });
 
-// Period selector
 $$('.period-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     $$('.period-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     loadDashboard();
-    toast(`Showing: ${btn.textContent}`, 'info');
   });
 });
 
-function renderChart(id, data, colors) {
+function renderMetrics(stats) {
+  const grid = $('#metricsGrid');
+  const metrics = [
+    { icon: 'box', value: stats.total_orders, label: 'Orders', color: '#d4a44a', bg: 'rgba(212,164,74,0.1)' },
+    { icon: 'ticket', value: stats.total_tickets, label: 'Tickets', color: '#e89050', bg: 'rgba(232,144,80,0.1)' },
+    { icon: 'users', value: stats.total_customers, label: 'Customers', color: '#9080e8', bg: 'rgba(144,128,232,0.1)' },
+    { icon: 'dollar', value: `$${Math.round(stats.revenue)}`, label: 'Revenue', color: '#30c88b', bg: 'rgba(48,200,139,0.1)' },
+    { icon: 'alert', value: stats.pending_escalations, label: 'Escalations', color: '#e05560', bg: 'rgba(224,85,96,0.1)' },
+    { icon: 'clock', value: (stats.order_statuses.processing || 0) + (stats.order_statuses.shipped || 0), label: 'Pending Orders', color: '#e8c04a', bg: 'rgba(232,192,74,0.1)' },
+  ];
+  const icons = {
+    box: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
+    ticket: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>',
+    users: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>',
+    dollar: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+    alert: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>',
+    clock: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  };
+  grid.innerHTML = metrics.map((m, idx) =>
+    `<div class="metric-card" style="animation-delay:${idx * 0.06}s">
+      <div class="metric-icon" style="background:${m.bg};color:${m.color}">${icons[m.icon]}</div>
+      <div class="metric-body">
+        <div class="metric-top">
+          <span class="metric-value" id="metric${idx}">0</span>
+        </div>
+        <span class="metric-label">${m.label}</span>
+      </div>
+    </div>`
+  ).join('');
+  metrics.forEach((m, idx) => {
+    const el = $(`#metric${idx}`);
+    if (el && typeof m.value === 'number') animateCount(el, m.value);
+    else if (el) el.textContent = m.value;
+  });
+}
+
+function renderBarChart(id, data, colors) {
   const c = $(`#${id}`);
   const entries = Object.entries(data);
   const max = Math.max(...Object.values(data), 1);
-  if (!entries.length) { c.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px">No data</div>'; return; }
+  if (!entries.length) { c.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:16px">No data</div>'; return; }
   c.innerHTML = entries.map(([k, v]) =>
-    `<div class="chart-bar-wrap">
-      <span class="chart-bar-val">${v}</span>
-      <div class="chart-bar" style="height:${(v / max) * 100}%;background:${colors[k] || '#6c63ff'}"></div>
-      <span class="chart-bar-label">${k.replace(/_/g, ' ')}</span>
+    `<div class="bar-chart-wrap">
+      <span class="bar-chart-val">${v}</span>
+      <div class="bar-chart-bar" style="height:${(v / max) * 100}%;background:${colors[k] || '#d4a44a'}"></div>
+      <span class="bar-chart-label">${k.replace(/_/g, ' ')}</span>
     </div>`
   ).join('');
 }
 
 function renderPriorityChart(p) {
   const c = $('#priorityChart');
-  const colors = { urgent: '#ff5470', high: '#ff8a50', medium: '#ffcd4a', low: '#6c63ff' };
+  const colors = { urgent: '#e05560', high: '#e89050', medium: '#d4a44a', low: '#9080e8' };
   const total = Object.values(p).reduce((a, b) => a + b, 0) || 1;
   const entries = Object.entries(p);
-  if (!entries.length) { c.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px">No data</div>'; return; }
+  if (!entries.length) { c.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:16px">No data</div>'; return; }
   c.innerHTML = `<div class="priority-list">${entries.map(([k, v]) =>
     `<div class="prio-item">
       <span class="prio-dot" style="background:${colors[k]}"></span>
@@ -574,17 +553,16 @@ function renderPriorityChart(p) {
 function renderActivity(stats) {
   const feed = $('#activityFeed');
   const activities = [
-    ...Object.entries(stats.order_statuses).map(([k, v]) => ({ icon: '📦', text: `<strong>${v}</strong> order(s) are <strong>${k}</strong>`, time: 'now' })),
-    ...Object.entries(stats.ticket_statuses).map(([k, v]) => ({ icon: '🎫', text: `<strong>${v}</strong> ticket(s) are <strong>${k.replace('_', ' ')}</strong>`, time: 'now' })),
+    ...Object.entries(stats.order_statuses).map(([k, v]) => ({ icon: '\uD83D\uDCE6', text: `<strong>${v}</strong> order(s) are <strong>${k}</strong>`, time: 'now' })),
+    ...Object.entries(stats.ticket_statuses).map(([k, v]) => ({ icon: '\uD83C\uDFAB', text: `<strong>${v}</strong> ticket(s) are <strong>${k.replace('_', ' ')}</strong>`, time: 'now' })),
   ];
-  if (stats.pending_escalations > 0) activities.unshift({ icon: '⚠️', text: `<strong>${stats.pending_escalations}</strong> escalation(s) pending`, time: 'now' });
-  if (!activities.length) { feed.innerHTML = '<div class="activity-empty">No recent activity</div>'; return; }
+  if (stats.pending_escalations > 0) activities.unshift({ icon: '\u26A0\uFE0F', text: `<strong>${stats.pending_escalations}</strong> escalation(s) pending`, time: 'now' });
+  if (!activities.length) { feed.innerHTML = '<div class="empty-state">No recent activity</div>'; return; }
   feed.innerHTML = activities.map(a =>
     `<div class="activity-item"><div class="activity-icon">${a.icon}</div><span class="activity-text">${a.text}</span><span class="activity-time">${a.time}</span></div>`
   ).join('');
 }
 
-// ===== ORDERS =====
 let ordersFiltered = [];
 
 async function loadOrders() {
@@ -613,12 +591,12 @@ function renderOrders(orders) {
   empty.style.display = 'none';
   body.innerHTML = orders.map(o =>
     `<tr>
-      <td class="th-check"><input type="checkbox" class="row-check" value="${esc(o.id)}"></td>
+      <td class="th-chk"><input type="checkbox" class="row-check" value="${esc(o.id)}"></td>
       <td><strong style="color:var(--text);font-weight:600">${esc(o.id)}</strong></td>
       <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(o.customer)[0]},${getAvatarColor(o.customer)[1]})">${getInitials(o.customer)}</div>${esc(o.customer)}</div></td>
       <td>${esc(o.items)}</td>
       <td><span style="font-weight:600;color:var(--text)">$${o.total.toFixed(2)}</span></td>
-      <td><span class="status-badge ${esc(o.status)}">${esc(o.status)}</span></td>
+      <td><span class="tag ${esc(o.status)}">${esc(o.status)}</span></td>
       <td>${o.date}</td>
       <td>${o.eta}</td>
       <td>
@@ -630,40 +608,48 @@ function renderOrders(orders) {
       </td>
     </tr>`
   ).join('');
-  $('#orderSelectAll').onclick = function() {
+  $('#orderSelectAll').addEventListener('change', function() {
     $$('.row-check').forEach(c => c.checked = this.checked);
-  };
+  });
 }
 
-window.deleteOrder = async function(id) {
-  if (!confirm(`Delete order ${id}?`)) return;
-  try { await API.del(`/api/orders/${id}`); toast(`Order ${id} deleted`, 'success'); loadOrders(); } catch { toast('Failed to delete order', 'error'); }
+let deleteTargetId = null;
+
+window.deleteOrder = function(id) {
+  deleteTargetId = id;
+  openModal('deleteModal');
 };
 
-$('#orderFilter').onchange = applyOrderFilters;
+$('#confirmDeleteBtn').addEventListener('click', async () => {
+  const id = deleteTargetId;
+  if (!id) return;
+  try { await API.del(`/api/orders/${id}`); toast(`Order ${id} deleted`, 'success'); loadOrders(); } catch { toast('Failed to delete order', 'error'); }
+  finally { deleteTargetId = null; closeModal('deleteModal'); }
+});
+
+$('#orderFilter').addEventListener('change', applyOrderFilters);
 $('#orderSearch').addEventListener('input', debounce(applyOrderFilters, 200));
 
-$('#addOrderBtn').onclick = () => {
+$('#addOrderBtn').addEventListener('click', () => {
   $('#orderCustomer').value = '';
   $('#orderItems').value = '';
   $('#orderTotal').value = '';
   openModal('orderModal');
-};
+});
 
-$('#saveOrderBtn').onclick = async () => {
+$('#saveOrderBtn').addEventListener('click', async () => {
   const customer = $('#orderCustomer').value.trim();
   const items = $('#orderItems').value.trim();
   const total = parseFloat($('#orderTotal').value);
   if (!customer || !items || isNaN(total)) { toast('Please fill all fields', 'error'); return; }
   try {
     await API.post('/api/orders', { customer, items, total });
-    toast('Order created successfully', 'success');
+    toast('Order created', 'success');
     closeModal('orderModal');
     loadOrders();
   } catch { toast('Failed to create order', 'error'); }
-};
+});
 
-// ===== TICKETS =====
 let ticketsFiltered = [];
 
 async function loadTickets() {
@@ -694,25 +680,25 @@ function renderTickets(tickets) {
   empty.style.display = 'none';
   body.innerHTML = tickets.map(t =>
     `<tr>
-      <td class="th-check"><input type="checkbox" class="row-check" value="${esc(t.id)}"></td>
+      <td class="th-chk"><input type="checkbox" class="row-check" value="${esc(t.id)}"></td>
       <td><strong style="color:var(--text);font-weight:600">${esc(t.id)}</strong></td>
       <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(t.customer)[0]},${getAvatarColor(t.customer)[1]})">${getInitials(t.customer)}</div>${esc(t.customer)}</div></td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.issue)}">${esc(t.issue)}</td>
-      <td><span class="priority-badge ${esc(t.priority)}">${esc(t.priority)}</span></td>
-      <td><span class="status-badge ${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span></td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.issue)}">${esc(t.issue)}</td>
+      <td><span class="prio ${esc(t.priority)}">${esc(t.priority)}</span></td>
+      <td><span class="tag ${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span></td>
       <td>${esc(t.assigned_to)}</td>
       <td>${t.date}</td>
       <td>
         <div class="table-actions">
           ${t.status !== 'resolved' ? `<button class="table-action-btn success" onclick="resolveTicket('${esc(t.id)}')" title="Resolve"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>` : ''}
-          <button class="table-action-btn" onclick="assignTicket('${esc(t.id)}')" title="Assign" style="color:var(--accent)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></button>
+          <button class="table-action-btn" onclick="assignTicket('${esc(t.id)}')" title="Assign" style="color:var(--gold)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></button>
         </div>
       </td>
     </tr>`
   ).join('');
-  $('#ticketSelectAll').onclick = function() {
+  $('#ticketSelectAll').addEventListener('change', function() {
     $$('.row-check').forEach(c => c.checked = this.checked);
-  };
+  });
 }
 
 window.resolveTicket = async function(id) {
@@ -736,31 +722,30 @@ window.assignTicket = async function(id) {
   } catch { toast('Failed to assign ticket', 'error'); }
 };
 
-$('#ticketFilter').onchange = applyTicketFilters;
-$('#priorityFilter').onchange = applyTicketFilters;
+$('#ticketFilter').addEventListener('change', applyTicketFilters);
+$('#priorityFilter').addEventListener('change', applyTicketFilters);
 $('#ticketSearch').addEventListener('input', debounce(applyTicketFilters, 200));
 
-$('#addTicketBtn').onclick = () => {
+$('#addTicketBtn').addEventListener('click', () => {
   $('#ticketCustomer').value = '';
   $('#ticketIssue').value = '';
   $('#ticketPriority').value = 'medium';
   openModal('ticketModal');
-};
+});
 
-$('#saveTicketBtn').onclick = async () => {
+$('#saveTicketBtn').addEventListener('click', async () => {
   const customer = $('#ticketCustomer').value.trim();
   const issue = $('#ticketIssue').value.trim();
   const priority = $('#ticketPriority').value;
   if (!customer || !issue) { toast('Please fill customer and issue', 'error'); return; }
   try {
     await API.post('/api/tickets', { customer, issue, priority });
-    toast('Ticket created successfully', 'success');
+    toast('Ticket created', 'success');
     closeModal('ticketModal');
     loadTickets();
   } catch { toast('Failed to create ticket', 'error'); }
-};
+});
 
-// ===== ESCALATIONS =====
 let escFiltered = [];
 
 async function loadEscalations() {
@@ -789,9 +774,9 @@ function renderEscalations(escs) {
     `<tr>
       <td><strong style="color:var(--text);font-weight:600">${esc(e.ticket_id)}</strong></td>
       <td><div class="customer-cell"><div class="customer-avatar-sm" style="background:linear-gradient(135deg,${getAvatarColor(e.customer)[0]},${getAvatarColor(e.customer)[1]})">${getInitials(e.customer)}</div>${esc(e.customer)}</div></td>
-      <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.issue)}">${esc(e.issue)}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.issue)}">${esc(e.issue)}</td>
       <td>${e.escalated_at}</td>
-      <td><span class="status-badge ${esc(e.status)}">${esc(e.status)}</span></td>
+      <td><span class="tag ${esc(e.status)}">${esc(e.status)}</span></td>
       <td>
         ${e.status === 'pending'
           ? `<button class="table-action-btn success" onclick="openResolveEsc('${esc(e.ticket_id)}')" title="Resolve"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>`
@@ -806,7 +791,7 @@ window.openResolveEsc = function(id) {
   openModal('resolveModal');
 };
 
-$('#confirmResolveBtn').onclick = async () => {
+$('#confirmResolveBtn').addEventListener('click', async () => {
   const id = $('#resolveModal').dataset.ticketId;
   if (!id) return;
   try {
@@ -815,12 +800,11 @@ $('#confirmResolveBtn').onclick = async () => {
     closeModal('resolveModal');
     loadEscalations();
   } catch { toast('Failed to resolve escalation', 'error'); }
-};
+});
 
 $('#refreshEscBtn')?.addEventListener('click', () => { loadEscalations(); toast('Escalations refreshed', 'info'); });
 $('#escSearch').addEventListener('input', debounce(applyEscFilters, 200));
 
-// ===== CUSTOMERS =====
 let customersFiltered = [];
 
 async function loadCustomers() {
@@ -882,7 +866,6 @@ function renderCustomers(customers) {
 $('#refreshCustomersBtn')?.addEventListener('click', () => { loadCustomers(); toast('Customers refreshed', 'info'); });
 $('#customerSearch').addEventListener('input', debounce(applyCustomerFilters, 200));
 
-// ===== POLICIES =====
 async function loadPolicies() {
   setLoading('policiesLoading', true);
   try {
@@ -912,12 +895,10 @@ function applyPolicyFilters() {
         </div>`
       ).join('')
     : '<div style="text-align:center;padding:48px 20px;color:var(--text-muted)"><p>No policies match your search.</p></div>';
-  if (entries.length) $('#policiesGrid').style.display = 'grid';
 }
 
 $('#policySearch').addEventListener('input', debounce(applyPolicyFilters, 200));
 
-// ===== INIT =====
 showWelcome();
 renderHistory();
 loadDashboard();
@@ -927,7 +908,6 @@ loadEscalations();
 loadCustomers();
 loadPolicies();
 
-// Keyboard shortcut
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === '/') {
     e.preventDefault();
