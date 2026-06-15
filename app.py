@@ -17,21 +17,31 @@ from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 import database as db
 
 load_dotenv(override=True)
-set_tracing_disabled(True)
+try:
+    set_tracing_disabled(True)
+except Exception:
+    pass
 
 llm_provider = os.getenv("LLM_PROVIDER", "gemini")
 
-if llm_provider == "ollama":
-    ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-    ollama_model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
-    _client = openai.AsyncOpenAI(api_key="ollama", base_url=ollama_base)
-    _model = OpenAIChatCompletionsModel(model=ollama_model_name, openai_client=_client)
-else:
-    api_key = os.getenv("GEMINI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    model_name = os.getenv("MODEL", "gemini-2.5-flash")
-    _client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url) if api_key else None
-    _model = OpenAIChatCompletionsModel(model=model_name, openai_client=_client) if _client else None
+_client = None
+_model = None
+
+try:
+    if llm_provider == "ollama":
+        ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        ollama_model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+        _client = openai.AsyncOpenAI(api_key="ollama", base_url=ollama_base)
+        _model = OpenAIChatCompletionsModel(model=ollama_model_name, openai_client=_client)
+    else:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            base_url = os.getenv("OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+            model_name = os.getenv("MODEL", "gemini-2.5-flash")
+            _client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+            _model = OpenAIChatCompletionsModel(model=model_name, openai_client=_client)
+except Exception:
+    pass
 
 RETURN_POLICIES = {
     "electronics": "30-day return window. Items must be unopened. Restocking fee of 15% applies.",
