@@ -5,7 +5,8 @@ from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-DB_PATH = os.getenv("DB_PATH", "support_desk.db")
+_DEFAULT_DB = os.path.join(os.sep, "tmp", "support_desk.db") if os.environ.get("VERCEL") else "support_desk.db"
+DB_PATH = os.getenv("DB_PATH", _DEFAULT_DB)
 
 
 def get_conn():
