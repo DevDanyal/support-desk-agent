@@ -1,6 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
+from typing import Optional
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -298,7 +299,7 @@ def save_conversation_state(conversation_id: str, state_json: str):
     conn.close()
 
 
-def load_conversation_state(conversation_id: str) -> str | None:
+def load_conversation_state(conversation_id: str) -> Optional[str]:
     conn = get_conn()
     row = conn.execute(
         "SELECT state_json FROM conversation_state WHERE conversation_id = ?",
