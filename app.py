@@ -4,7 +4,7 @@ import uvicorn
 import openai
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Union
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -53,11 +53,11 @@ class RegisterRequest(BaseModel):
 
 class SupportContext(BaseModel):
     """Context shared across the support agent lifecycle."""
-    user_id: str | None = None
-    username: str | None = None
-    email: str | None = None
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    email: Optional[str] = None
     account_tier: str = "standard"
-    conversation_id: str | None = None
+    conversation_id: Optional[str] = None
     tools_called: int = 0
     orders_looked_up: int = 0
     tickets_checked: int = 0
@@ -411,7 +411,7 @@ guardrail_agent = Agent(
 async def support_guardrail(
     ctx: RunContextWrapper[SupportContext],
     agent: Agent,
-    input_data: str | list,
+    input_data: Union[str, list],
 ) -> GuardrailFunctionOutput:
     if guardrail_agent is None:
         return GuardrailFunctionOutput(
