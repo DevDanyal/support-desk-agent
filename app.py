@@ -51,6 +51,22 @@ class RegisterRequest(BaseModel):
     password: str
 
 
+class SupportContext(BaseModel):
+    """Context shared across the support agent lifecycle."""
+    user_id: str | None = None
+    username: str | None = None
+    email: str | None = None
+    account_tier: str = "standard"
+    conversation_id: str | None = None
+    tools_called: int = 0
+    orders_looked_up: int = 0
+    tickets_checked: int = 0
+    policies_checked: int = 0
+    escalations_created: int = 0
+    tasks: list[dict] = []
+    tickets: list[dict] = []
+
+
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -120,12 +136,23 @@ app = FastAPI(title="Support Desk Agent", lifespan=lifespan)
 
 
 @function_tool
-def lookup_order_status(order_id: str) -> str:
-    """Look up the status of a customer order by order ID.
+def lookup_order_status(
+    ctx: RunContextWrapper[SupportContext],
+    order_id: str,
+) -> str:
+    """
+    Look up the current status and details of a customer order by its unique order ID.
 
     Args:
-        order_id: The order ID to look up (e.g. ORD-1001).
+        order_id: The unique order identifier to look up (e.g. ORD-1001, ORD-1002).
+
+    Returns:
+        A human-readable summary of the order including status, customer name,
+        items purchased, total amount, order date, and estimated delivery date,
+        or a message indicating the order was not found.
     """
+    ctx.context.orders_looked_up += 1
+    ctx.context.tools_called += 1
     order = db.get_order(order_id)
     if not order:
         return f"Order {order_id} not found. Please verify the order ID."
@@ -140,12 +167,22 @@ def lookup_order_status(order_id: str) -> str:
 
 
 @function_tool
-def check_return_policy(item_category: str) -> str:
-    """Check the return policy for a given item category.
+def check_return_policy(
+    ctx: RunContextWrapper[SupportContext],
+    item_category: str,
+) -> str:
+    """
+    Retrieve the return policy for a given product category.
 
     Args:
-        item_category: The category of the item (e.g. electronics, clothing, furniture).
+        item_category: The product category to check (e.g. electronics, clothing, furniture).
+
+    Returns:
+        The full return policy details including return window, condition requirements,
+        and any applicable fees, or a message listing available categories if not found.
     """
+    ctx.context.policies_checked += 1
+    ctx.context.tools_called += 1
     policy = RETURN_POLICIES.get(item_category.lower())
     if not policy:
         result = f"Sorry, no return policy found for '{item_category}'. Available categories: {', '.join(RETURN_POLICIES.keys())}."
@@ -156,12 +193,22 @@ def check_return_policy(item_category: str) -> str:
 
 
 @function_tool
-def check_ticket_status(ticket_id: str) -> str:
-    """Check the status of a support ticket by ticket ID.
+def check_ticket_status(
+    ctx: RunContextWrapper[SupportContext],
+    ticket_id: str,
+) -> str:
+    """
+    Check the current status and details of a support ticket by its ticket ID.
 
     Args:
-        ticket_id: The ticket ID to look up (e.g. TKT-5001).
+        ticket_id: The unique support ticket identifier (e.g. TKT-5001, TKT-5002).
+
+    Returns:
+        A summary of the ticket including its current status, priority level,
+        the issue description, and the customer name, or a not-found message.
     """
+    ctx.context.tickets_checked += 1
+    ctx.context.tools_called += 1
     ticket = db.get_ticket(ticket_id)
     if not ticket:
         return f"Ticket {ticket_id} not found. Please verify the ticket ID."
@@ -174,13 +221,27 @@ def check_ticket_status(ticket_id: str) -> str:
 
 
 @function_tool
-def escalate_to_human(customer_name: str, issue_description: str) -> str:
-    """Escalate a customer issue to a human support agent.
+def escalate_to_human(
+    ctx: RunContextWrapper[SupportContext],
+    customer_name: str,
+    issue_description: str,
+) -> str:
+    """
+    Escalate a customer issue that the AI agent cannot resolve to a human support agent.
+
+    Creates a new escalation ticket in the system for manual review.
 
     Args:
-        customer_name: The name of the customer.
-        issue_description: A description of the issue to escalate.
+        customer_name: The full name of the customer requesting escalation (required).
+        issue_description: A detailed description of the issue to escalate,
+            including any relevant context or steps already taken (required).
+
+    Returns:
+        A confirmation message with the new escalation ticket ID and a note
+        that a human agent will follow up within 24 hours.
     """
+    ctx.context.escalations_created += 1
+    ctx.context.tools_called += 1
     ticket_id = db.get_next_escalation_id()
     db.create_escalation(ticket_id, customer_name, issue_description)
     result = (
@@ -189,6 +250,138 @@ def escalate_to_human(customer_name: str, issue_description: str) -> str:
     )
     _tool_calls_log.append({"tool": "escalate_to_human", "args": {"customer_name": customer_name, "issue_description": issue_description}, "result": result})
     return result
+
+
+@function_tool
+def get_session_stats(ctx: RunContextWrapper[SupportContext]) -> str:
+    """
+    Get statistics for the current support session, including how many
+    orders, tickets, policies, and escalations have been handled.
+
+    Returns:
+        A summary string of all actions taken in this session.
+    """
+    return (
+        f"Session stats for {ctx.context.username or 'agent'}: "
+        f"{ctx.context.orders_looked_up} orders looked up, "
+        f"{ctx.context.tickets_checked} tickets checked, "
+        f"{ctx.context.policies_checked} policies reviewed, "
+        f"{ctx.context.escalations_created} escalations created. "
+        f"Total tools called: {ctx.context.tools_called}."
+    )
+
+
+@function_tool
+def add_task(
+    ctx: RunContextWrapper[SupportContext],
+    title: str,
+    priority: int = 1,
+) -> str:
+    """
+    Add a new task to the session task list.
+
+    Args:
+        title: The task description (required).
+        priority: Priority level 1-5 where 5 is highest (optional, defaults to 1).
+
+    Returns:
+        Confirmation message with the new task ID.
+    """
+    task_id = f"task_{len(ctx.context.tasks) + 1:03d}"
+    task = {
+        "id": task_id,
+        "title": title,
+        "priority": priority,
+        "status": "pending",
+        "created": datetime.now(timezone.utc).isoformat(),
+    }
+    ctx.context.tasks.append(task)
+    return f"Created {task_id}: '{title}' (priority {priority})"
+
+
+@function_tool
+def list_tasks(ctx: RunContextWrapper[SupportContext]) -> str:
+    """
+    List all tasks in the current session.
+
+    Returns:
+        A formatted list of all tasks with their status, priority, and ID.
+    """
+    tasks = ctx.context.tasks
+    if not tasks:
+        return "No tasks in the current session."
+    lines = ["Current tasks:"]
+    for t in tasks:
+        status = "[x]" if t["status"] == "complete" else "[ ]"
+        lines.append(f"  {status} {t['id']}: {t['title']} (P{t['priority']})")
+    lines.append(f"\n{sum(1 for t in tasks if t['status'] == 'complete')}/{len(tasks)} tasks completed.")
+    return "\n".join(lines)
+
+
+@function_tool
+def complete_task(
+    ctx: RunContextWrapper[SupportContext],
+    task_id: str,
+) -> str:
+    """
+    Mark an existing task as complete.
+
+    Args:
+        task_id: The ID of the task to mark complete (e.g. task_001).
+
+    Returns:
+        Confirmation message showing the completed task title.
+    """
+    for task in ctx.context.tasks:
+        if task["id"] == task_id:
+            task["status"] = "complete"
+            return f"Completed task {task_id}: '{task['title']}'"
+    return f"Task {task_id} not found."
+
+
+@function_tool
+def create_ticket(
+    ctx: RunContextWrapper[SupportContext],
+    subject: str,
+    description: str,
+    priority: str = "medium",
+) -> str:
+    """
+    Create a new support ticket in the system.
+
+    Args:
+        subject: A short summary of the issue (required).
+        description: A detailed description of the problem (required).
+        priority: Priority level — low, medium, high, or urgent (optional, defaults to medium).
+
+    Returns:
+        Confirmation message with the new ticket ID.
+    """
+    ticket = db.create_ticket(ctx.context.username or "Unknown", f"{subject}: {description}", priority)
+    ticket_id = ticket["id"]
+    ctx.context.tickets.append({"id": ticket_id, "subject": subject, "priority": priority, "status": "open"})
+    return f"Created ticket {ticket_id}: '{subject}' ({priority} priority). A support agent will review it shortly."
+
+
+@function_tool
+def check_account_status(ctx: RunContextWrapper[SupportContext]) -> str:
+    """
+    Check the account details and tier for the current customer.
+
+    Returns:
+        A summary of the customer's account including name, email, account tier,
+        and any open tickets in this session.
+    """
+    name = ctx.context.username or "Unknown"
+    email = ctx.context.email or "Not provided"
+    tier = ctx.context.account_tier
+    ticket_count = len(ctx.context.tickets)
+    return (
+        f"Account summary for {name} ({email}):\n"
+        f"  Account tier: {tier.upper()}\n"
+        f"  Tickets created this session: {ticket_count}\n"
+        f"{'  You have priority support as a premium member.' if tier == 'premium' else '  Standard support hours: Mon-Fri 9am-6pm.'}"
+    )
 
 
 # ── Guardrail Agent ──
@@ -216,7 +409,7 @@ guardrail_agent = Agent(
 
 @input_guardrail
 async def support_guardrail(
-    ctx: RunContextWrapper,
+    ctx: RunContextWrapper[SupportContext],
     agent: Agent,
     input_data: str | list,
 ) -> GuardrailFunctionOutput:
@@ -243,6 +436,8 @@ class LoggingHooks(AgentHooks):
         pass
 
     async def on_tool_start(self, context, agent, tool_call):
+        if context and hasattr(context, "tools_called"):
+            context.tools_called += 1
         _tool_calls_log.append({
             "tool": tool_call.name,
             "args": tool_call.arguments if hasattr(tool_call, "arguments") else {},
@@ -269,15 +464,20 @@ SYSTEM_PROMPT = (
     "1. Looking up order statuses (use lookup_order_status)\n"
     "2. Checking return policies (use check_return_policy)\n"
     "3. Checking support ticket statuses (use check_ticket_status)\n"
-    "4. Escalating unresolved issues to a human agent (use escalate_to_human)\n\n"
+    "4. Escalating unresolved issues to a human agent (use escalate_to_human)\n"
+    "5. Getting session statistics and action history (use get_session_stats)\n"
+    "6. Managing session tasks — add tasks (use add_task), list them (use list_tasks), mark complete (use complete_task)\n"
+    "7. Creating support tickets in the system (use create_ticket)\n"
+    "8. Checking the current customer's account status and tier (use check_account_status)\n\n"
+    "You have access to context about the current user. Address them by their name when known.\n"
     "Be friendly, professional, and concise. If the customer seems frustrated, "
     "apologise and offer to escalate."
 )
 
-agent = Agent(
+agent = Agent[SupportContext](
     name="Support Agent",
     instructions=SYSTEM_PROMPT,
-    tools=[lookup_order_status, check_return_policy, check_ticket_status, escalate_to_human],
+    tools=[lookup_order_status, check_return_policy, check_ticket_status, escalate_to_human, get_session_stats, add_task, list_tasks, complete_task, create_ticket, check_account_status],
     model=_model,
     input_guardrails=[support_guardrail],
     hooks=LoggingHooks(),
@@ -285,7 +485,7 @@ agent = Agent(
 
 # ── Run Agent ──
 
-async def run_agent(question: str, conversation_id: str = None) -> dict:
+async def run_agent(question: str, conversation_id: str = None, ctx: SupportContext = None) -> dict:
     if not _client:
         err = "Error: No LLM configured. Set GEMINI_API_KEY or LLM_PROVIDER=ollama."
         return {"reply": err, "conversation_id": conversation_id}
@@ -293,6 +493,12 @@ async def run_agent(question: str, conversation_id: str = None) -> dict:
     conversation_id = conversation_id or str(uuid.uuid4())
     global _tool_calls_log
     _tool_calls_log = []
+
+    if ctx is None:
+        ctx = SupportContext(conversation_id=conversation_id)
+    else:
+        ctx.conversation_id = conversation_id
+        ctx.tools_called = 0
 
     run_config = RunConfig(
         workflow_name="Support Desk",
@@ -314,6 +520,7 @@ async def run_agent(question: str, conversation_id: str = None) -> dict:
         result = await Runner.run(
             agent,
             agent_input,
+            context=ctx,
             run_config=run_config,
             max_turns=8,
             error_handlers={
@@ -472,7 +679,14 @@ def get_return_policies(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest, current_user: dict = Depends(get_current_user)):
-    return await run_agent(req.message, req.conversation_id)
+    ctx = SupportContext(
+        user_id=current_user["id"],
+        username=current_user["username"],
+        email=current_user["email"],
+        account_tier=current_user.get("role", "standard"),
+        conversation_id=req.conversation_id,
+    )
+    return await run_agent(req.message, req.conversation_id, ctx=ctx)
 
 
 @app.get("/api/chat-history")

@@ -81,7 +81,11 @@ async function handleLogin(email, password) {
     showApp();
     location.reload();
   } catch (e) {
-    $('#loginError').textContent = e.message;
+    let msg = e.message;
+    if (e instanceof TypeError && msg === 'Failed to fetch') {
+      msg = 'Cannot reach server — make sure the app is running on localhost:8000 and refresh the page.';
+    }
+    $('#loginError').textContent = msg;
   }
 }
 
@@ -94,7 +98,11 @@ async function handleRegister(email, username, password) {
     showApp();
     location.reload();
   } catch (e) {
-    $('#regError').textContent = e.message || 'Registration failed';
+    let msg = e.message || 'Registration failed';
+    if (e instanceof TypeError && msg === 'Failed to fetch') {
+      msg = 'Cannot reach server — make sure the app is running on localhost:8000 and refresh the page.';
+    }
+    $('#regError').textContent = msg;
   }
 }
 
