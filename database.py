@@ -84,9 +84,8 @@ def init_db():
     # Seed default admin if no users exist
     row = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()
     if row["c"] == 0:
-        from uuid import uuid4
         now = datetime.now().isoformat()
-        admin_id = str(uuid4())
+        admin_id = "admin-00000000-0000-0000-0000-000000000000"
         hashed = pwd_context.hash("admin123")
         conn.execute(
             "INSERT INTO users (id, email, username, hashed_password, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
