@@ -1,12 +1,150 @@
-const API = {
-  async get(url) { const r = await fetch(url); if (!r.ok) throw new Error(`GET ${url} failed`); return r.json(); },
-  async post(url, body) { const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }); if (!r.ok) throw new Error(`POST ${url} failed`); return r.json(); },
-  async patch(url, body) { const r = await fetch(url, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }); if (!r.ok) throw new Error(`PATCH ${url} failed`); return r.json(); },
-  async del(url) { const r = await fetch(url, { method:'DELETE' }); if (!r.ok) throw new Error(`DELETE ${url} failed`); return r.json(); },
-};
-
 const $ = (sel, ctx) => (ctx || document).querySelector(sel);
 const $$ = (sel, ctx) => [...(ctx || document).querySelectorAll(sel)];
+
+// ── Auth State ──
+let authToken = localStorage.getItem('sd_token') || null;
+let authUser = null;
+
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (authToken) h['Authorization'] = `Bearer ${authToken}`;
+  return h;
+}
+
+async function apiFetch(url, opts = {}) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    logout();
+    throw new Error('Unauthorized');
+  }
+  if (!r.ok) throw new Error(`${opts.method || 'GET'} ${url} failed`);
+  return r.json();
+}
+
+const API = {
+  async get(url) { return apiFetch(url, { headers: authHeaders() }); },
+  async post(url, body) { return apiFetch(url, { method:'POST', headers: authHeaders(), body:JSON.stringify(body) }); },
+  async patch(url, body) { return apiFetch(url, { method:'PATCH', headers: authHeaders(), body:JSON.stringify(body) }); },
+  async del(url) { return apiFetch(url, { method:'DELETE', headers: authHeaders() }); },
+};
+
+async function checkAuth() {
+  if (!authToken) return false;
+  try {
+    const data = await API.get('/api/auth/me');
+    authUser = data;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function showAuth() {
+  $('#authScreen').style.display = 'flex';
+  $('#app').style.display = 'none';
+}
+
+function showApp() {
+  $('#authScreen').style.display = 'none';
+  $('#app').style.display = 'flex';
+  if (authUser) {
+    const init = getInitials(authUser.username);
+    $('#userAvatar').textContent = init;
+    $('#userName').textContent = authUser.username;
+    $('#userEmail').textContent = authUser.email;
+  }
+}
+
+function logout() {
+  authToken = null;
+  authUser = null;
+  localStorage.removeItem('sd_token');
+  showAuth();
+  $('#authHint').textContent = 'Signed out successfully';
+}
+
+async function handleLogin(email, password) {
+  try {
+    const formData = new URLSearchParams();
+    formData.append('username', email);
+    formData.append('password', password);
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Login failed');
+    authToken = data.access_token;
+    authUser = data.user;
+    localStorage.setItem('sd_token', authToken);
+    showApp();
+    location.reload();
+  } catch (e) {
+    $('#loginError').textContent = e.message;
+  }
+}
+
+async function handleRegister(email, username, password) {
+  try {
+    const data = await API.post('/api/auth/register', { email, username, password });
+    authToken = data.access_token;
+    authUser = data.user;
+    localStorage.setItem('sd_token', authToken);
+    showApp();
+    location.reload();
+  } catch (e) {
+    $('#regError').textContent = e.message || 'Registration failed';
+  }
+}
+
+// ── Auth Event Listeners ──
+
+$$('.auth-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.auth-tab').forEach(t => t.classList.remove('active'));
+    $$('.auth-form').forEach(f => f.classList.remove('active'));
+    tab.classList.add('active');
+    const form = $(`#${tab.dataset.tab}Form`);
+    if (form) form.classList.add('active');
+    $$('.auth-error').forEach(e => e.textContent = '');
+  });
+});
+
+$('#loginForm').addEventListener('submit', e => {
+  e.preventDefault();
+  $('#loginError').textContent = '';
+  handleLogin($('#loginEmail').value.trim(), $('#loginPassword').value);
+});
+
+$('#registerForm').addEventListener('submit', e => {
+  e.preventDefault();
+  $('#regError').textContent = '';
+  handleRegister($('#regEmail').value.trim(), $('#regUsername').value.trim(), $('#regPassword').value);
+});
+
+$('#logoutBtn').addEventListener('click', logout);
+
+// ── Boot ──
+
+(async function boot() {
+  const authed = await checkAuth();
+  if (authed) {
+    showApp();
+    showWelcome();
+    renderHistory();
+    loadDashboard();
+    loadOrders();
+    loadTickets();
+    loadEscalations();
+    loadCustomers();
+    loadPolicies();
+  } else {
+    authToken = null;
+    localStorage.removeItem('sd_token');
+    showAuth();
+  }
+})();
 
 function uid() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -898,15 +1036,6 @@ function applyPolicyFilters() {
 }
 
 $('#policySearch').addEventListener('input', debounce(applyPolicyFilters, 200));
-
-showWelcome();
-renderHistory();
-loadDashboard();
-loadOrders();
-loadTickets();
-loadEscalations();
-loadCustomers();
-loadPolicies();
 
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === '/') {

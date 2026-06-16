@@ -1,6 +1,9 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DB_PATH = os.getenv("DB_PATH", "support_desk.db")
 
@@ -64,50 +67,32 @@ def init_db():
             state_json TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            username TEXT NOT NULL,
+            hashed_password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            created_at TEXT NOT NULL
+        );
     """)
     conn.commit()
 
-    # Seed data if empty
-    row = conn.execute("SELECT COUNT(*) as c FROM orders").fetchone()
+    # Seed default admin if no users exist
+    row = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()
     if row["c"] == 0:
-        _seed(conn)
+        from uuid import uuid4
+        now = datetime.now().isoformat()
+        admin_id = str(uuid4())
+        hashed = pwd_context.hash("admin123")
+        conn.execute(
+            "INSERT INTO users (id, email, username, hashed_password, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (admin_id, "admin@support.com", "Admin", hashed, "admin", now),
+        )
+        conn.commit()
+
     conn.close()
-
-
-def _seed(conn):
-    now = datetime.now()
-    orders = [
-        ("ORD-1001", "shipped", "2026-06-01", "2026-06-10", "Alice Johnson", "Wireless Headphones", 89.99),
-        ("ORD-1002", "processing", "2026-06-05", "2026-06-15", "Bob Smith", "USB-C Hub, Mouse Pad", 34.50),
-        ("ORD-1003", "delivered", "2026-05-20", "2026-05-28", "Carol Davis", "Mechanical Keyboard", 149.99),
-        ("ORD-1004", "cancelled", "2026-05-25", "N/A", "David Wilson", "Monitor Stand", 45.00),
-        ("ORD-1005", "processing", "2026-06-07", "2026-06-17", "Eve Martinez", "Webcam, Microphone", 129.99),
-    ]
-    conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?,?)", orders)
-
-    tickets = [
-        ("TKT-5001", "open", "high", "Wrong item received", "Alice Johnson", "2026-06-02", "Unassigned"),
-        ("TKT-5002", "in_progress", "medium", "Refund not processed", "Bob Smith", "2026-06-06", "Sarah Chen"),
-        ("TKT-5003", "resolved", "low", "Shipping address change", "Carol Davis", "2026-05-22", "Mike Ross"),
-        ("TKT-5004", "open", "urgent", "Account hacked - unauthorized purchases", "Frank Lee", "2026-06-08", "Unassigned"),
-        ("TKT-5005", "open", "medium", "Damaged product on delivery", "Grace Kim", "2026-06-09", "Unassigned"),
-    ]
-    conn.executemany("INSERT INTO tickets VALUES (?,?,?,?,?,?,?)", tickets)
-
-    escalations = [
-        ("TKT-5004", "Frank Lee", "Account hacked - unauthorized purchases", "2026-06-08 14:30", "pending"),
-    ]
-    conn.executemany("INSERT INTO escalations VALUES (?,?,?,?,?)", escalations)
-
-    customers = [
-        ("CST-001", "Alice Johnson", "alice@email.com", 3, 1, "2025-03-15"),
-        ("CST-002", "Bob Smith", "bob@email.com", 1, 1, "2025-06-20"),
-        ("CST-003", "Carol Davis", "carol@email.com", 5, 1, "2024-11-01"),
-        ("CST-004", "David Wilson", "david@email.com", 2, 0, "2025-08-12"),
-        ("CST-005", "Eve Martinez", "eve@email.com", 4, 0, "2025-01-05"),
-    ]
-    conn.executemany("INSERT INTO customers VALUES (?,?,?,?,?,?)", customers)
-    conn.commit()
 
 
 # ── Orders ──
@@ -320,6 +305,46 @@ def load_conversation_state(conversation_id: str) -> str | None:
     ).fetchone()
     conn.close()
     return row["state_json"] if row else None
+
+
+# ── Users / Auth ──
+
+def create_user(email: str, username: str, password: str) -> dict:
+    from uuid import uuid4
+    conn = get_conn()
+    existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if existing:
+        conn.close()
+        return None
+    user_id = str(uuid4())
+    hashed = pwd_context.hash(password)
+    now = datetime.now().isoformat()
+    conn.execute(
+        "INSERT INTO users (id, email, username, hashed_password, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, email, username, hashed, "admin", now),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def get_user_by_email(email: str):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: str):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
 
 # ── Stats ──

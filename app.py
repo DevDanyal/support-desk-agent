@@ -3,10 +3,13 @@ import uuid
 import uvicorn
 import openai
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from agents import (
     Agent, Runner, function_tool, set_tracing_disabled,
@@ -17,6 +20,61 @@ from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 import database as db
 
 load_dotenv(override=True)
+
+SECRET_KEY = os.getenv("JWT_SECRET", "fallback-secret-change-in-production")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    user_id: Optional[str] = None
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    username: str
+    role: str
+    created_at: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    username: str
+    password: str
+
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.get_user_by_id(user_id)
+    if user is None:
+        raise credentials_exception
+    return user
 try:
     set_tracing_disabled(True)
 except Exception:
@@ -301,18 +359,50 @@ class TicketUpdate(BaseModel):
     assigned_to: Optional[str] = None
 
 
+# ── Auth Endpoints ──
+
+
+@app.post("/api/auth/register")
+def register(req: RegisterRequest):
+    existing = db.get_user_by_email(req.email)
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = db.create_user(req.email, req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Registration failed")
+    token = create_access_token({"sub": user["id"], "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "user": UserOut(**user).model_dump()}
+
+
+@app.post("/api/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = db.get_user_by_email(form_data.username)
+    if not user or not db.verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_access_token({"sub": user["id"], "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "user": UserOut(**user).model_dump()}
+
+
+@app.get("/api/auth/me")
+def get_me(current_user: dict = Depends(get_current_user)):
+    return UserOut(**current_user).model_dump()
+
+
+# ── API Routes (protected) ──
+
+
 @app.get("/api/stats")
-def get_stats():
+def get_stats(current_user: dict = Depends(get_current_user)):
     return db.get_stats()
 
 
 @app.get("/api/orders")
-def get_orders():
+def get_orders(current_user: dict = Depends(get_current_user)):
     return db.get_all_orders()
 
 
 @app.get("/api/orders/{order_id}")
-def get_order(order_id: str):
+def get_order(order_id: str, current_user: dict = Depends(get_current_user)):
     order = db.get_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -320,12 +410,12 @@ def get_order(order_id: str):
 
 
 @app.post("/api/orders")
-def create_order(order: OrderCreate):
+def create_order(order: OrderCreate, current_user: dict = Depends(get_current_user)):
     return db.create_order(order.customer, order.items, order.total)
 
 
 @app.delete("/api/orders/{order_id}")
-def delete_order(order_id: str):
+def delete_order(order_id: str, current_user: dict = Depends(get_current_user)):
     order = db.get_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -334,12 +424,12 @@ def delete_order(order_id: str):
 
 
 @app.get("/api/tickets")
-def get_tickets():
+def get_tickets(current_user: dict = Depends(get_current_user)):
     return db.get_all_tickets()
 
 
 @app.get("/api/tickets/{ticket_id}")
-def get_ticket(ticket_id: str):
+def get_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
     ticket = db.get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -347,12 +437,12 @@ def get_ticket(ticket_id: str):
 
 
 @app.post("/api/tickets")
-def create_ticket(ticket: TicketCreate):
+def create_ticket(ticket: TicketCreate, current_user: dict = Depends(get_current_user)):
     return db.create_ticket(ticket.customer, ticket.issue, ticket.priority)
 
 
 @app.patch("/api/tickets/{ticket_id}")
-def update_ticket(ticket_id: str, update: TicketUpdate):
+def update_ticket(ticket_id: str, update: TicketUpdate, current_user: dict = Depends(get_current_user)):
     ticket = db.get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -360,33 +450,33 @@ def update_ticket(ticket_id: str, update: TicketUpdate):
 
 
 @app.get("/api/escalations")
-def get_escalations():
+def get_escalations(current_user: dict = Depends(get_current_user)):
     return db.get_all_escalations()
 
 
 @app.post("/api/escalations/{ticket_id}/resolve")
-def resolve_escalation(ticket_id: str):
+def resolve_escalation(ticket_id: str, current_user: dict = Depends(get_current_user)):
     db.resolve_escalation(ticket_id)
     return {"message": f"Escalation {ticket_id} resolved"}
 
 
 @app.get("/api/customers")
-def get_customers():
+def get_customers(current_user: dict = Depends(get_current_user)):
     return db.get_all_customers()
 
 
 @app.get("/api/return-policies")
-def get_return_policies():
+def get_return_policies(current_user: dict = Depends(get_current_user)):
     return RETURN_POLICIES
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, current_user: dict = Depends(get_current_user)):
     return await run_agent(req.message, req.conversation_id)
 
 
 @app.get("/api/chat-history")
-def get_chat_history():
+def get_chat_history(current_user: dict = Depends(get_current_user)):
     return db.get_recent_chat_history(50)
 
 
