@@ -11,6 +11,7 @@ os.environ["LLM_PROVIDER"] = "gemini"
 from unittest.mock import patch
 
 import pytest
+from pytest_asyncio import fixture as async_fixture
 pytestmark = pytest.mark.asyncio
 from httpx import AsyncClient, ASGITransport
 from app import app
@@ -18,7 +19,7 @@ from app import app
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    from database import init_db, get_conn
+    from database import init_db, get_conn, seed_demo_data
     conn = get_conn()
     conn.executescript("""
         DROP TABLE IF EXISTS orders;
@@ -26,9 +27,14 @@ def setup_db():
         DROP TABLE IF EXISTS escalations;
         DROP TABLE IF EXISTS customers;
         DROP TABLE IF EXISTS chat_history;
+        DROP TABLE IF EXISTS conversation_state;
+        DROP TABLE IF EXISTS agent_sessions;
+        DROP TABLE IF EXISTS agent_messages;
+        DROP TABLE IF EXISTS users;
     """)
     conn.close()
     init_db()
+    seed_demo_data()
     yield
     try:
         os.remove(os.environ["DB_PATH"])
@@ -42,9 +48,22 @@ def client():
     return AsyncClient(transport=transport, base_url="http://test")
 
 
+@async_fixture
+async def auth_client(client):
+    r = await client.post("/api/auth/register", json={
+        "email": "test@test.com",
+        "username": "TestUser",
+        "password": "testpass123",
+    })
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+    client.headers = {"Authorization": f"Bearer {token}"}
+    return client
+
+
 @pytest.mark.asyncio
-async def test_get_stats(client):
-    r = await client.get("/api/stats")
+async def test_get_stats(auth_client):
+    r = await auth_client.get("/api/stats")
     assert r.status_code == 200
     data = r.json()
     assert "total_orders" in data
@@ -53,8 +72,8 @@ async def test_get_stats(client):
 
 
 @pytest.mark.asyncio
-async def test_get_orders(client):
-    r = await client.get("/api/orders")
+async def test_get_orders(auth_client):
+    r = await auth_client.get("/api/orders")
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
@@ -62,22 +81,22 @@ async def test_get_orders(client):
 
 
 @pytest.mark.asyncio
-async def test_get_order_found(client):
-    r = await client.get("/api/orders/ORD-1001")
+async def test_get_order_found(auth_client):
+    r = await auth_client.get("/api/orders/ORD-1001")
     assert r.status_code == 200
     data = r.json()
     assert data["customer"] == "Alice Johnson"
 
 
 @pytest.mark.asyncio
-async def test_get_order_not_found(client):
-    r = await client.get("/api/orders/INVALID")
+async def test_get_order_not_found(auth_client):
+    r = await auth_client.get("/api/orders/INVALID")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_create_order(client):
-    r = await client.post("/api/orders", json={"customer": "Test", "items": "Item", "total": 10.0})
+async def test_create_order(auth_client):
+    r = await auth_client.post("/api/orders", json={"customer": "Test", "items": "Item", "total": 10.0})
     assert r.status_code == 200
     data = r.json()
     assert data["customer"] == "Test"
@@ -85,18 +104,18 @@ async def test_create_order(client):
 
 
 @pytest.mark.asyncio
-async def test_delete_order(client):
-    r = await client.post("/api/orders", json={"customer": "Del", "items": "X", "total": 1.0})
+async def test_delete_order(auth_client):
+    r = await auth_client.post("/api/orders", json={"customer": "Del", "items": "X", "total": 1.0})
     order_id = r.json()["id"]
-    r = await client.delete(f"/api/orders/{order_id}")
+    r = await auth_client.delete(f"/api/orders/{order_id}")
     assert r.status_code == 200
-    r = await client.get(f"/api/orders/{order_id}")
+    r = await auth_client.get(f"/api/orders/{order_id}")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_get_tickets(client):
-    r = await client.get("/api/tickets")
+async def test_get_tickets(auth_client):
+    r = await auth_client.get("/api/tickets")
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
@@ -104,57 +123,59 @@ async def test_get_tickets(client):
 
 
 @pytest.mark.asyncio
-async def test_get_ticket_found(client):
-    r = await client.get("/api/tickets/TKT-5001")
+async def test_get_ticket_found(auth_client):
+    r = await auth_client.get("/api/tickets/TKT-5001")
     assert r.status_code == 200
     data = r.json()
     assert data["issue"] == "Wrong item received"
 
 
 @pytest.mark.asyncio
-async def test_create_ticket(client):
-    r = await client.post("/api/tickets", json={"customer": "Test", "issue": "Bug", "priority": "high"})
+async def test_create_ticket(auth_client):
+    r = await auth_client.post("/api/tickets", json={"customer": "Test", "issue": "Bug", "priority": "high"})
     assert r.status_code == 200
     data = r.json()
     assert data["priority"] == "high"
 
 
 @pytest.mark.asyncio
-async def test_update_ticket(client):
-    r = await client.post("/api/tickets", json={"customer": "Test", "issue": "Fix"})
+async def test_update_ticket(auth_client):
+    r = await auth_client.post("/api/tickets", json={"customer": "Test", "issue": "Fix"})
     ticket_id = r.json()["id"]
-    r = await client.patch(f"/api/tickets/{ticket_id}", json={"status": "resolved"})
+    r = await auth_client.patch(f"/api/tickets/{ticket_id}", json={"status": "resolved"})
     assert r.status_code == 200
     assert r.json()["status"] == "resolved"
 
 
 @pytest.mark.asyncio
-async def test_get_ticket_not_found(client):
-    r = await client.get("/api/tickets/INVALID")
+async def test_get_ticket_not_found(auth_client):
+    r = await auth_client.get("/api/tickets/INVALID")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_get_escalations(client):
-    r = await client.get("/api/escalations")
+async def test_get_escalations(auth_client):
+    r = await auth_client.get("/api/escalations")
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
 
 
 @pytest.mark.asyncio
-async def test_resolve_escalation(client):
-    r = await client.post("/api/escalations/TKT-5004/resolve")
+async def test_resolve_escalation(auth_client):
+    from database import create_escalation
+    create_escalation("TKT-5004", "Diana Prince", "Account hacked")
+    r = await auth_client.post("/api/escalations/TKT-5004/resolve")
     assert r.status_code == 200
-    r = await client.get("/api/escalations")
+    r = await auth_client.get("/api/escalations")
     escs = r.json()
     resolved = [e for e in escs if e["ticket_id"] == "TKT-5004"]
     assert resolved[0]["status"] == "resolved"
 
 
 @pytest.mark.asyncio
-async def test_get_customers(client):
-    r = await client.get("/api/customers")
+async def test_get_customers(auth_client):
+    r = await auth_client.get("/api/customers")
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
@@ -162,8 +183,8 @@ async def test_get_customers(client):
 
 
 @pytest.mark.asyncio
-async def test_get_return_policies(client):
-    r = await client.get("/api/return-policies")
+async def test_get_return_policies(auth_client):
+    r = await auth_client.get("/api/return-policies")
     assert r.status_code == 200
     data = r.json()
     assert "electronics" in data
@@ -172,10 +193,10 @@ async def test_get_return_policies(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_endpoint(client):
+async def test_chat_endpoint(auth_client):
     with patch("app.run_agent") as mock_run:
         mock_run.return_value = {"reply": "Hello! How can I help?", "conversation_id": "mock-cid", "tool_calls": []}
-        r = await client.post("/api/chat", json={"message": "Hello"})
+        r = await auth_client.post("/api/chat", json={"message": "Hello"})
     assert r.status_code == 200
     data = r.json()
     assert "reply" in data
@@ -184,23 +205,22 @@ async def test_chat_endpoint(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_history(client):
-    r = await client.get("/api/chat-history")
+async def test_chat_history(auth_client):
+    r = await auth_client.get("/api/chat-history")
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
 
 
 @pytest.mark.asyncio
-async def test_chat_with_conversation_id(client):
+async def test_chat_with_conversation_id(auth_client):
     with patch("app.run_agent") as mock_run:
         mock_run.return_value = {"reply": "Reply", "conversation_id": "test-conv-ccc", "tool_calls": []}
-        r = await client.post("/api/chat", json={"message": "First", "conversation_id": "test-conv-ccc"})
+        r = await auth_client.post("/api/chat", json={"message": "First", "conversation_id": "test-conv-ccc"})
         assert r.status_code == 200
         assert r.json()["conversation_id"] == "test-conv-ccc"
         assert r.json()["reply"] == "Reply"
         mock_run.return_value = {"reply": "Second reply", "conversation_id": "test-conv-ccc", "tool_calls": []}
-        r = await client.post("/api/chat", json={"message": "Second", "conversation_id": "test-conv-ccc"})
+        r = await auth_client.post("/api/chat", json={"message": "Second", "conversation_id": "test-conv-ccc"})
         assert r.status_code == 200
         assert r.json()["conversation_id"] == "test-conv-ccc"
-

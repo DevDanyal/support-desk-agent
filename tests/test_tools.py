@@ -12,6 +12,7 @@ import database as db
 
 def setup_module():
     db.init_db()
+    db.seed_demo_data()
 
 
 def teardown_module():

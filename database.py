@@ -348,6 +348,59 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
+# ── Seed Demo Data ──
+
+def seed_demo_data():
+    """Insert demo data (orders, tickets, customers) for testing/development."""
+    conn = get_conn()
+    count = conn.execute("SELECT COUNT(*) as c FROM orders").fetchone()["c"]
+    if count == 0:
+        now = datetime.now().strftime("%Y-%m-%d")
+        eta = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+        demo_orders = [
+            ("ORD-1001", "shipped", "2025-01-15", "2025-01-20", "Alice Johnson", "Wireless Keyboard, Mouse Pad", 49.99),
+            ("ORD-1002", "processing", "2025-01-18", "2025-01-28", "Bob Smith", "USB-C Hub, 4K Monitor", 349.99),
+            ("ORD-1003", "delivered", "2025-01-10", "2025-01-14", "Charlie Brown", "Laptop Stand, Webcam", 89.99),
+            ("ORD-1004", "cancelled", "2025-01-12", "2025-01-22", "Diana Prince", "Mechanical Keyboard", 129.99),
+            ("ORD-1005", "shipped", "2025-01-16", "2025-01-21", "Eve Adams", "Noise Cancelling Headphones", 249.99),
+            ("ORD-1006", "processing", now, eta, "Frank Castle", "External SSD 1TB", 159.99),
+        ]
+        conn.executemany(
+            "INSERT INTO orders (id, status, date, eta, customer, items, total) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            demo_orders,
+        )
+    count = conn.execute("SELECT COUNT(*) as c FROM tickets").fetchone()["c"]
+    if count == 0:
+        ticket_data = [
+            ("TKT-5001", "open", "high", "Wrong item received", "Alice Johnson", "2025-01-16", "Unassigned"),
+            ("TKT-5002", "in_progress", "medium", "Shipping delay", "Bob Smith", "2025-01-17", "Agent X"),
+            ("TKT-5003", "resolved", "low", "Return request", "Charlie Brown", "2025-01-14", "Agent Y"),
+            ("TKT-5004", "open", "urgent", "Account hacked", "Diana Prince", "2025-01-18", "Unassigned"),
+            ("TKT-5005", "in_progress", "medium", "Billing inquiry", "Eve Adams", "2025-01-15", "Agent Z"),
+        ]
+        conn.executemany(
+            "INSERT INTO tickets (id, status, priority, issue, customer, date, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ticket_data,
+        )
+    count = conn.execute("SELECT COUNT(*) as c FROM customers").fetchone()["c"]
+    if count == 0:
+        now = datetime.now().strftime("%Y-%m-%d")
+        customers = [
+            ("CUST-001", "Alice Johnson", "alice@example.com", 3, 1, "2024-06-01"),
+            ("CUST-002", "Bob Smith", "bob@example.com", 5, 2, "2024-07-15"),
+            ("CUST-003", "Charlie Brown", "charlie@example.com", 2, 1, "2024-08-20"),
+            ("CUST-004", "Diana Prince", "diana@example.com", 8, 3, "2024-05-10"),
+            ("CUST-005", "Eve Adams", "eve@example.com", 1, 1, "2024-09-01"),
+            ("CUST-006", "Frank Castle", "frank@example.com", 4, 0, now),
+        ]
+        conn.executemany(
+            "INSERT INTO customers (id, name, email, orders, tickets, member_since) VALUES (?, ?, ?, ?, ?, ?)",
+            customers,
+        )
+    conn.commit()
+    conn.close()
+
+
 # ── Stats ──
 
 def get_stats():
