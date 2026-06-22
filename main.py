@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 import openai
 from datetime import datetime, timezone
 from typing import Optional, Union
@@ -10,18 +11,115 @@ from pydantic import BaseModel
 from agents import (
     Agent, Runner, function_tool, set_tracing_disabled,
     GuardrailFunctionOutput, InputGuardrailTripwireTriggered,
-    RunContextWrapper, AgentHooks, RunConfig, input_guardrail,
+    RunContextWrapper, AgentHooks, RunHooks, RunConfig, input_guardrail,
     output_guardrail, tool_input_guardrail,
     ToolGuardrailFunctionOutput, handoff, SQLiteSession,
 )
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.extensions import handoff_filters
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
+from agents.tracing import (
+    trace, add_trace_processor, TracingProcessor,
+    AgentSpanData, FunctionSpanData, HandoffSpanData,
+    GuardrailSpanData, GenerationSpanData, SpanError,
+)
 import database as db
 
 load_dotenv(override=True)
 
-set_tracing_disabled(True)
+# ── Tracing & Observability ──
+
+class SupportTracingProcessor(TracingProcessor):
+    def __init__(self, max_traces: int = 50, max_spans: int = 500):
+        self.traces: list[dict] = []
+        self.spans: list[dict] = []
+        self.max_traces = max_traces
+        self.max_spans = max_spans
+        self._trace_map: dict[str, dict] = {}
+
+    def on_trace_start(self, trace_obj) -> None:
+        entry = {
+            "trace_id": trace_obj.trace_id,
+            "workflow_name": trace_obj.name,
+            "group_id": trace_obj.group_id,
+            "metadata": trace_obj.metadata,
+            "event": "start",
+            "timestamp": time.time(),
+        }
+        self.traces.append(entry)
+        self._trace_map[trace_obj.trace_id] = entry
+        if len(self.traces) > self.max_traces:
+            self.traces.pop(0)
+
+    def on_trace_end(self, trace_obj) -> None:
+        entry = self._trace_map.get(trace_obj.trace_id)
+        if entry:
+            entry["event"] = "end"
+            entry["ended_at"] = time.time()
+            entry["duration_ms"] = round((entry["ended_at"] - entry["timestamp"]) * 1000, 2)
+
+    def on_span_start(self, span) -> None:
+        span_data = span.span_data
+        entry = {
+            "span_id": span.span_id,
+            "trace_id": span.trace_id,
+            "parent_id": span.parent_id,
+            "span_type": type(span_data).__name__ if span_data else None,
+            "event": "start",
+            "timestamp": time.time(),
+            "name": getattr(span_data, "name", None)
+                     or (span_data.output if isinstance(span_data, AgentSpanData) and span_data.output else None)
+                     or None,
+            "input": self._serialize(span_data, "input"),
+            "output": self._serialize(span_data, "output"),
+            "error": None,
+        }
+        self.spans.append(entry)
+        if len(self.spans) > self.max_spans:
+            self.spans.pop(0)
+
+    def on_span_end(self, span) -> None:
+        for s in self.spans:
+            if s["span_id"] == span.span_id:
+                s["event"] = "end"
+                s["ended_at"] = time.time()
+                s["duration_ms"] = round((s["ended_at"] - s["timestamp"]) * 1000, 2)
+                if span.error:
+                    s["error"] = {"message": str(span.error.message), "code": span.error.code}
+                sd = span.span_data
+                if sd:
+                    out = self._serialize(sd, "output")
+                    if out:
+                        s["output"] = out
+                break
+
+    def force_flush(self) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        self.traces.clear()
+        self.spans.clear()
+        self._trace_map.clear()
+
+    def _serialize(self, span_data, field: str):
+        try:
+            raw = getattr(span_data, field, None)
+            if raw is None:
+                return None
+            if isinstance(raw, str):
+                return raw[:500]
+            if isinstance(raw, (list, dict)):
+                return json.dumps(raw, default=str)[:500]
+            return str(raw)[:500]
+        except Exception:
+            return None
+
+
+_trace_store = SupportTracingProcessor()
+try:
+    add_trace_processor(_trace_store)
+except Exception:
+    pass
 
 llm_provider = os.getenv("LLM_PROVIDER", "gemini")
 
@@ -496,16 +594,126 @@ def check_account_status(ctx: RunContextWrapper[SupportContext]) -> str:
 
 # ── Lifecycle Hooks ──
 
+_hook_events: list[dict] = []
+
+
 class LoggingHooks(AgentHooks):
-    async def on_agent_start(self, context, agent):
-        pass
+    async def on_start(self, context, agent):
+        _hook_events.append({
+            "type": "agent_start",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_end(self, context, agent, output):
+        _hook_events.append({
+            "type": "agent_end",
+            "agent": agent.name,
+            "output": str(output)[:300],
+            "timestamp": time.time(),
+        })
+
+    async def on_handoff(self, context, agent, handoff):
+        _hook_events.append({
+            "type": "handoff",
+            "from_agent": agent.name,
+            "to_agent": handoff.agent_name if hasattr(handoff, "agent_name") else str(handoff),
+            "timestamp": time.time(),
+        })
+
+    async def on_llm_start(self, context, agent):
+        _hook_events.append({
+            "type": "llm_start",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
     async def on_llm_end(self, context, agent, response):
-        pass
+        usage = None
+        if hasattr(response, "usage") and response.usage:
+            usage = {
+                "prompt_tokens": getattr(response.usage, "prompt_tokens", None),
+                "completion_tokens": getattr(response.usage, "completion_tokens", None),
+            }
+        _hook_events.append({
+            "type": "llm_end",
+            "agent": agent.name,
+            "usage": usage,
+            "timestamp": time.time(),
+        })
+
     async def on_tool_start(self, context, agent, tool_call):
         if context and hasattr(context, "tools_called"):
             context.tools_called += 1
+        _hook_events.append({
+            "type": "tool_start",
+            "agent": agent.name,
+            "tool": tool_call.name,
+            "timestamp": time.time(),
+        })
+
     async def on_tool_end(self, context, agent, tool_call, result):
-        pass
+        _hook_events.append({
+            "type": "tool_end",
+            "agent": agent.name,
+            "tool": tool_call.name,
+            "result": str(result)[:300],
+            "timestamp": time.time(),
+        })
+
+
+class SupportRunHooks(RunHooks):
+    async def on_agent_start(self, context, agent):
+        _hook_events.append({
+            "type": "run_agent_start",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_agent_end(self, context, agent, output):
+        _hook_events.append({
+            "type": "run_agent_end",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_handoff(self, context, agent, handoff):
+        _hook_events.append({
+            "type": "run_handoff",
+            "from_agent": agent.name,
+            "to_agent": handoff.agent_name if hasattr(handoff, "agent_name") else str(handoff),
+            "timestamp": time.time(),
+        })
+
+    async def on_llm_start(self, context, agent):
+        _hook_events.append({
+            "type": "run_llm_start",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_llm_end(self, context, agent, response):
+        _hook_events.append({
+            "type": "run_llm_end",
+            "agent": agent.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_tool_start(self, context, agent, tool_call):
+        _hook_events.append({
+            "type": "run_tool_start",
+            "agent": agent.name,
+            "tool": tool_call.name,
+            "timestamp": time.time(),
+        })
+
+    async def on_tool_end(self, context, agent, tool_call, result):
+        _hook_events.append({
+            "type": "run_tool_end",
+            "agent": agent.name,
+            "tool": tool_call.name,
+            "timestamp": time.time(),
+        })
 
 
 # ── Error Handlers ──
@@ -551,6 +759,7 @@ orders_agent = Agent[SupportContext](
     instructions=ORDERS_INSTRUCTIONS,
     tools=[lookup_order_status, check_account_status],
     model=_model,
+    hooks=LoggingHooks(),
     output_guardrails=[response_quality_guardrail, pii_output_guardrail],
 )
 
@@ -560,6 +769,7 @@ policies_tickets_agent = Agent[SupportContext](
     instructions=POLICIES_TICKETS_INSTRUCTIONS,
     tools=[check_return_policy, check_ticket_status, create_ticket],
     model=_model,
+    hooks=LoggingHooks(),
     output_guardrails=[response_quality_guardrail, pii_output_guardrail],
 )
 
@@ -569,6 +779,7 @@ escalations_agent = Agent[SupportContext](
     instructions=ESCALATIONS_INSTRUCTIONS,
     tools=[escalate_to_human],
     model=_model,
+    hooks=LoggingHooks(),
     output_guardrails=[response_quality_guardrail, pii_output_guardrail],
 )
 
@@ -578,6 +789,7 @@ session_agent = Agent[SupportContext](
     instructions=SESSION_INSTRUCTIONS,
     tools=[get_session_stats, add_task, list_tasks, complete_task],
     model=_model,
+    hooks=LoggingHooks(),
     output_guardrails=[response_quality_guardrail, pii_output_guardrail],
 )
 
@@ -656,6 +868,7 @@ triage_agent = Agent[SupportContext](
         handoff(orchestrator_agent, input_filter=handoff_filters.remove_all_tools),
     ],
     model=_model,
+    hooks=LoggingHooks(),
     input_guardrails=[support_guardrail],
     output_guardrails=[response_quality_guardrail, pii_output_guardrail],
 )
@@ -675,7 +888,8 @@ async def main():
 
     run_config = RunConfig(
         workflow_name="Support Desk",
-        tracing_disabled=True,
+        tracing_disabled=False,
+        hooks=[SupportRunHooks()],
     )
 
     conversation_id = "cli_" + str(int(datetime.now().timestamp()))
@@ -702,18 +916,23 @@ async def main():
         question = " ".join(sys.argv[1:])
         print(f"\nYou: {question}")
         try:
-            result = await Runner.run(
-                triage_agent,
-                question,
-                context=ctx,
-                run_config=run_config,
-                max_turns=8,
-                error_handlers={
-                    "max_turns": on_max_turns,
-                    "model_refusal": on_refusal,
-                },
-                session=session,
-            )
+            async with trace(
+                "Support Desk Run",
+                group_id=conversation_id,
+                metadata={"username": ctx.username, "mode": "single"},
+            ):
+                result = await Runner.run(
+                    triage_agent,
+                    question,
+                    context=ctx,
+                    run_config=run_config,
+                    max_turns=8,
+                    error_handlers={
+                        "max_turns": on_max_turns,
+                        "model_refusal": on_refusal,
+                    },
+                    session=session,
+                )
             db.save_conversation_state(conversation_id, json.dumps({
                 "tools_called": ctx.tools_called,
                 "orders_looked_up": ctx.orders_looked_up,
@@ -738,18 +957,23 @@ async def main():
                     break
                 if not user_input:
                     continue
-                result = await Runner.run(
-                    triage_agent,
-                    user_input,
-                    context=ctx,
-                    run_config=run_config,
-                    max_turns=8,
-                    error_handlers={
-                        "max_turns": on_max_turns,
-                        "model_refusal": on_refusal,
-                    },
-                    session=session,
-                )
+                async with trace(
+                    "Support Desk Run",
+                    group_id=conversation_id,
+                    metadata={"username": ctx.username, "mode": "interactive"},
+                ):
+                    result = await Runner.run(
+                        triage_agent,
+                        user_input,
+                        context=ctx,
+                        run_config=run_config,
+                        max_turns=8,
+                        error_handlers={
+                            "max_turns": on_max_turns,
+                            "model_refusal": on_refusal,
+                        },
+                        session=session,
+                    )
                 db.save_conversation_state(conversation_id, json.dumps({
                     "tools_called": ctx.tools_called,
                     "orders_looked_up": ctx.orders_looked_up,
